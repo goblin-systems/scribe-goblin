@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html data-theme="goblin" lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scribe Goblin Overlay</title>
+    <script type="module" src="/src/overlay.ts" defer></script>
+    <style>
+      :root {
+        --overlay-bg: rgba(26, 27, 38, 0.95);
+        --overlay-border: rgba(255, 255, 255, 0.1);
+        --item-hover: rgba(255, 255, 255, 0.05);
+        --item-selected: rgba(122, 162, 247, 0.2);
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: transparent;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        color: #a9b1d6;
+      }
+
+      .overlay-container {
+        width: 400px;
+        height: 500px;
+        background: var(--overlay-bg);
+        border: 1px solid var(--overlay-border);
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        backdrop-filter: blur(10px);
+      }
+
+      .search-header {
+        padding: 12px;
+        border-bottom: 1px solid var(--overlay-border);
+      }
+
+      .search-input {
+        width: 100%;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid var(--overlay-border);
+        border-radius: 6px;
+        padding: 8px 12px;
+        color: #c0caf5;
+        font-size: 14px;
+        box-sizing: border-box;
+        outline: none;
+      }
+
+      .search-input:focus {
+        border-color: #7aa2f7;
+      }
+
+      .results-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 8px 0;
+      }
+
+      .result-item {
+        padding: 10px 16px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        transition: background 0.1s;
+      }
+
+      .result-item:hover {
+        background: var(--item-hover);
+      }
+
+      .result-item.is-selected {
+        background: var(--item-selected);
+        border-left: 3px solid #7aa2f7;
+      }
+
+      .result-content {
+        font-size: 13px;
+        line-height: 1.4;
+        color: #c0caf5;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .masked-content { display: none; }
+      .result-item.is-secret .unmasked-content { display: none; }
+      .result-item.is-secret .masked-content { display: inline; color: #565f89; font-family: monospace; letter-spacing: 2px; }
+
+      body.alt-pressed .result-item.is-secret .unmasked-content { display: inline; }
+      body.alt-pressed .result-item.is-secret .masked-content { display: none; }
+
+      .result-meta {
+        font-size: 11px;
+        color: #565f89;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .overlay-footer {
+        padding: 8px 12px;
+        font-size: 11px;
+        color: #565f89;
+        border-top: 1px solid var(--overlay-border);
+        background: rgba(0, 0, 0, 0.1);
+        display: flex;
+        justify-content: space-between;
+      }
+
+      kbd {
+        background: #24283b;
+        border: 1px solid #414868;
+        border-radius: 3px;
+        padding: 1px 4px;
+        color: #7aa2f7;
+        font-family: inherit;
+      }
+
+      /* Scrollbar */
+      .results-list::-webkit-scrollbar {
+        width: 6px;
+      }
+      .results-list::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="overlay-container">
+      <div class="search-header">
+        <input type="text" id="overlay-search" class="search-input" placeholder="Search clipboard history..." autocomplete="off" />
+      </div>
+      <div id="results-list" class="results-list">
+        <!-- Results will be injected here -->
+      </div>
+      <div class="overlay-footer">
+        <span><kbd>Enter</kbd> Paste</span>
+        <span><kbd>Del</kbd> Delete</span>
+        <span><kbd>Esc</kbd> Close</span>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html data-theme="goblin" lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scribe Goblin</title>
+    <script type="module" src="/src/main.ts"></script>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+
+      <!-- Titlebar -->
+      <div class="app-titlebar" data-tauri-drag-region>
+        <div class="app-title-wrap" data-tauri-drag-region>
+          <span class="window-title">Scribe Goblin</span>
+        </div>
+        <div class="app-window-actions">
+          <button class="icon-btn icon-btn-sm" id="minimize-btn" title="Minimise">
+            <i data-lucide="minus"></i>
+          </button>
+          <button class="icon-btn icon-btn-sm" id="close-btn" title="Close">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="top-tabs" role="tablist">
+        <button class="top-tab is-active" id="tab-entries" role="tab">
+          <i data-lucide="scroll-text"></i>
+          Entries
+        </button>
+        <button class="top-tab" id="tab-settings" role="tab">
+          <i data-lucide="settings"></i>
+          Settings
+        </button>
+      </div>
+
+      <!-- ── Entries panel ──────────────────────────────────────────────── -->
+      <div id="panel-entries" class="panel" role="tabpanel">
+
+        <!-- Toolbar -->
+        <div class="entries-toolbar">
+          <div class="search-wrap">
+            <i data-lucide="search" class="search-icon"></i>
+            <input
+              type="text"
+              id="search-input"
+              class="search-input"
+              placeholder="Search entries…"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button class="icon-btn icon-btn-sm" id="search-clear-btn" title="Clear" hidden>
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <button class="secondary-btn slim-btn" id="add-entry-btn">
+            <i data-lucide="plus"></i>
+            Add note
+          </button>
+        </div>
+
+        <!-- Quick-add form -->
+        <div id="quick-add-form" class="quick-add-form" hidden>
+          <textarea
+            id="quick-add-input"
+            class="input-field"
+            placeholder="Type a note… (Ctrl+Enter to save, Esc to cancel)"
+            rows="3"
+          ></textarea>
+          <div class="row gap-2">
+            <button class="secondary-btn slim-btn" id="quick-add-save-btn">
+              <i data-lucide="check"></i>
+              Save
+            </button>
+            <button class="secondary-btn slim-btn" id="quick-add-cancel-btn">Cancel</button>
+          </div>
+        </div>
+
+        <!-- List + detail side by side -->
+        <div class="entries-body">
+
+          <!-- Entry list -->
+          <div id="entries-list" class="entries-list"></div>
+
+          <!-- Empty state (shown when no entries) -->
+          <div id="entries-empty" class="entries-empty" hidden>
+            <i data-lucide="scroll-text" style="width:32px;height:32px;opacity:0.2;"></i>
+            <p class="hint">No entries yet.<br />Anything you copy will appear here automatically.</p>
+          </div>
+
+          <!-- Entry detail -->
+          <div id="entry-detail" class="entry-detail" hidden>
+            <div class="entry-detail-header">
+              <h3>Entry</h3>
+              <button class="icon-btn icon-btn-sm" id="entry-detail-delete" title="Delete entry">
+                <i data-lucide="trash-2"></i>
+              </button>
+              <button class="icon-btn icon-btn-sm" id="entry-detail-close" title="Close">
+                <i data-lucide="x"></i>
+              </button>
+            </div>
+            <div class="entry-detail-body">
+              <div id="entry-detail-content" class="entry-detail-content"></div>
+              <div id="entry-detail-secret-actions" class="entry-detail-secret-actions" hidden></div>
+              <div id="entry-detail-meta" class="entry-detail-meta"></div>
+            </div>
+          </div>
+
+          <!-- Placeholder when no entry selected -->
+          <div id="entry-detail-placeholder" class="entry-detail-placeholder">
+            <i data-lucide="mouse-pointer-click" style="width:28px;height:28px;opacity:0.2;"></i>
+            <p class="hint" style="margin:0;">Select an entry to read it</p>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── Settings panel ─────────────────────────────────────────────── -->
+      <div id="panel-settings" class="panel" hidden role="tabpanel">
+        <div class="settings-scroll">
+
+          <!-- Capture -->
+          <div class="settings-section">
+            <div class="section-heading-row">
+              <h2>Capture</h2>
+            </div>
+            <label class="row gap-2" style="cursor:pointer;align-items:center;">
+              <input type="checkbox" id="clipboard-monitoring-checkbox" />
+              <span>Monitor clipboard automatically</span>
+            </label>
+            <p class="hint" style="margin-top:6px;">
+              Anything you copy is saved as an entry in the background.
+            </p>
+          </div>
+
+          <!-- AI Providers -->
+          <div class="settings-section">
+            <div class="section-heading-row">
+              <h2>AI Providers</h2>
+            </div>
+            <p class="hint">
+              Configure your API keys once to use them for both embeddings and AI enrichment.
+            </p>
+
+            <div class="field-block" style="margin-top:12px;">
+              <label class="field-label" for="provider-setup-select">Configure Provider</label>
+              <select id="provider-setup-select" class="select-field">
+                <option value="local">Local (MiniLM)</option>
+                <option value="openai">OpenAI</option>
+                <option value="gemini">Google Gemini</option>
+                <option value="ollama">Ollama (local)</option>
+              </select>
+            </div>
+
+            <!-- Local Setup -->
+            <div id="setup-local-section">
+              <p class="hint">Using the built-in SetFit classifier for offline embeddings and classification.</p>
+            </div>
+
+            <!-- OpenAI Setup -->
+            <div id="setup-openai-section">
+              <div class="field-block" style="margin-top:10px;">
+                <label class="field-label" for="openai-api-key">OpenAI API Key</label>
+                <div class="row gap-2 api-key-row">
+                  <input type="password" id="openai-api-key" class="input-field" placeholder="sk-…" autocomplete="off" />
+                  <button class="icon-btn" id="toggle-openai-key-btn" title="Show/hide">
+                    <i data-lucide="eye"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Gemini Setup -->
+            <div id="setup-gemini-section" hidden>
+              <div class="field-block" style="margin-top:10px;">
+                <label class="field-label" for="gemini-api-key">Gemini API Key</label>
+                <div class="row gap-2 api-key-row">
+                  <input type="password" id="gemini-api-key" class="input-field" placeholder="AIza…" autocomplete="off" />
+                  <button class="icon-btn" id="toggle-gemini-key-btn" title="Show/hide">
+                    <i data-lucide="eye"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Ollama Setup -->
+            <div id="setup-ollama-section" hidden>
+              <div class="field-block" style="margin-top:10px;">
+                <label class="field-label" for="ollama-base-url">Ollama base URL</label>
+                <input type="text" id="ollama-base-url" class="input-field" placeholder="http://localhost:11434" />
+              </div>
+            </div>
+
+            <div class="row gap-2" style="margin-top:12px;align-items:center;">
+              <span id="provider-status" class="status-indicator disconnected">
+                <span class="status-dot"></span>
+                <span class="status-text">Not tested</span>
+              </span>
+              <button class="secondary-btn slim-btn" id="test-provider-btn" type="button">
+                <i data-lucide="zap"></i>
+                Test Connection
+              </button>
+            </div>
+          </div>
+
+          <!-- Embeddings -->
+          <div class="settings-section">
+            <div class="section-heading-row">
+              <h2>Embeddings</h2>
+            </div>
+            <p class="hint">
+              Embeddings enable semantic search — finding entries by meaning, not just keywords.
+            </p>
+
+            <div class="field-block" style="margin-top:12px;">
+              <label class="field-label" for="embedding-unified-model-select">Model</label>
+              <div class="row gap-2">
+                <select id="embedding-unified-model-select" class="select-field" style="flex:1;"></select>
+                <input type="text" id="embedding-model-input" class="input-field" style="flex:1;" hidden placeholder="Ollama model..." />
+                <button class="icon-btn" id="refresh-embedding-models-btn" title="Refresh model list">
+                  <i data-lucide="refresh-cw"></i>
+                </button>
+              </div>
+              <p id="embedding-model-hint" class="hint" style="margin-top:4px;"></p>
+            </div>
+          </div>
+
+          <!-- AI Enrichment -->
+          <div class="settings-section">
+            <div class="section-heading-row">
+              <h2>AI Enrichment</h2>
+            </div>
+            <p class="hint">
+              Automatically summarise entries and generate tags in the background after capture.
+            </p>
+            <label class="row gap-2" style="cursor:pointer;align-items:center;margin-top:10px;">
+              <input type="checkbox" id="enrichment-enabled-checkbox" />
+              <span>Enable AI enrichment</span>
+            </label>
+
+            <div id="enrichment-config" hidden>
+              <div class="field-block" style="margin-top:12px;">
+                <label class="field-label" for="enrichment-unified-model-select">Model</label>
+                <div class="row gap-2">
+                  <select id="enrichment-unified-model-select" class="select-field" style="flex:1;"></select>
+                  <button class="icon-btn" id="refresh-enrichment-models-btn" title="Refresh model list">
+                    <i data-lucide="refresh-cw"></i>
+                  </button>
+                </div>
+                <p id="enrichment-model-hint" class="hint" style="margin-top:4px;"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Debug -->
+          <div class="settings-section">
+            <div class="section-heading-row">
+              <h2>Debug</h2>
+            </div>
+            <label class="row gap-2" style="cursor:pointer;align-items:center;">
+              <input type="checkbox" id="debug-logging-checkbox" />
+              <span>Enable debug logging</span>
+            </label>
+            <p id="debug-log-path" class="hint" style="margin-top:6px;">Debug logs are disabled.</p>
+            <div style="margin-top:8px;">
+              <button class="secondary-btn slim-btn" id="open-debug-folder-btn" disabled>
+                <i data-lucide="folder-open"></i>
+                Open log folder
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-footer">
+            <p class="hint" style="font-size:var(--font-size-xs);">Scribe Goblin v0.1.0</p>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </body>
+</html>

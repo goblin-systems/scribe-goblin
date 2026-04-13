@@ -1,0 +1,38 @@
+[package]
+name = "scribe-goblin"
+version = "0.1.0"
+description = "Local-first second brain — clipboard capture, semantic search, embeddings"
+authors = ["Sergej Popov"]
+edition = "2021"
+
+[lib]
+name = "scribe_goblin_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri-plugin-store = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+arboard = "3"
+time = { version = "0.3", features = ["formatting", "local-offset"] }
+ureq = { version = "3", features = ["native-tls"] }
+tauri-plugin-global-shortcut = "2.0.0-rc"
+ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+ndarray = "0.16"
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+] }
