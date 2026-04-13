@@ -12,6 +12,9 @@ interface Entry {
   label: string | null;
   label_score: number | null;
   embedding: string | null;
+  secret_verdict: string | null;
+  secret_type: string | null;
+  secret_source: string | null;
 }
 
 let entries: Entry[] = [];
@@ -41,7 +44,8 @@ function renderEntries() {
 
   entries.forEach((entry, index) => {
     const item = document.createElement("div");
-    item.className = `result-item ${index === selectedIndex ? "is-selected" : ""}`;
+    const isSecret = entry.secret_verdict && entry.secret_verdict !== "not_secret";
+    item.className = `result-item ${index === selectedIndex ? "is-selected" : ""} ${isSecret ? "is-secret" : ""}`;
     
     const content = document.createElement("div");
     content.className = "result-content";

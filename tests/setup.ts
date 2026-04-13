@@ -32,7 +32,10 @@ vi.mock('@tauri-apps/api/core', () => {
           created_at: args.createdAt,
           label: null,
           label_score: null,
-          embedding: null
+          embedding: null,
+          secret_verdict: null,
+          secret_type: null,
+          secret_source: null
         };
         mockEntries.push(entry);
         return id;
@@ -56,6 +59,16 @@ vi.mock('@tauri-apps/api/core', () => {
           entry.label = args.label;
           entry.label_score = args.labelScore;
           entry.embedding = args.embedding;
+        }
+        return;
+      }
+
+      if (command === 'db_update_entry_secret') {
+        const entry = mockEntries.find(e => e.id === args.id);
+        if (entry) {
+          entry.secret_verdict = args.secretVerdict;
+          entry.secret_type = args.secretType;
+          entry.secret_source = args.secretSource;
         }
         return;
       }

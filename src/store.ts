@@ -8,6 +8,9 @@ export interface EntryRow {
   label: string | null;
   label_score: number | null;
   embedding: string | null;  // JSON number[]
+  secret_verdict: string | null;
+  secret_type: string | null;
+  secret_source: string | null;
 }
 
 export function parseTags(tags: string | null): string[] {

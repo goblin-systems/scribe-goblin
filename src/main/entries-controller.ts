@@ -10,6 +10,8 @@ import {
   sourceIcon,
 } from "../store";
 import { getEmbedding } from "../embedding";
+import { debugLog } from "../logger";
+import { scan } from "../secret-detection/index";
 
 const ENTRIES_LIMIT = 200;
 
@@ -143,8 +145,15 @@ function buildEntryItem(entry: EntryRow): HTMLElement {
     ? entry.content.slice(0, 140).trimEnd() + "…"
     : entry.content;
 
+  const isSecret = entry.secret_verdict && entry.secret_verdict !== "not_secret";
+  const displayPreview = isSecret ? "•".repeat(Math.min(entry.content.length, 32)) : escapeHtml(preview);
+
   const labelBadge = entry.label && entry.label !== "other" 
     ? `<span class="badge badge-primary">${escapeHtml(entry.label)}</span>` 
+    : "";
+
+  const secretBadge = entry.secret_verdict && entry.secret_verdict !== "not_secret"
+    ? `<span class="badge" style="background:rgba(255,0,0,0.15);color:#ff6b6b;">${entry.secret_verdict === "secret" ? "secret" : "likely secret"}</span>`
     : "";
 
   const appInfo = entry.source_app ? `<span class="hint">via ${escapeHtml(entry.source_app)}</span>` : "";
@@ -155,8 +164,9 @@ function buildEntryItem(entry: EntryRow): HTMLElement {
       <span class="entry-time hint">${formatRelativeTime(entry.created_at)}</span>
       ${appInfo}
       ${labelBadge}
+      ${secretBadge}
     </div>
-    <p class="entry-preview">${escapeHtml(preview)}</p>
+    <p class="entry-preview">${displayPreview}</p>
   `;
 
   item.addEventListener("click", () => selectEntry(entry));
@@ -170,7 +180,23 @@ function selectEntry(entry: EntryRow): void {
     el.classList.toggle("is-selected", (el as HTMLElement).dataset.id === entry.id);
   });
 
-  dom.entryDetailContent.textContent = entry.content;
+  const isSecret = entry.secret_verdict && entry.secret_verdict !== "not_secret";
+  if (isSecret) {
+    dom.entryDetailContent.innerHTML = `
+      <div class="masked-content-row">
+        <span class="masked-text">${"•".repeat(Math.min(entry.content.length, 40))}</span>
+        <button class="btn btn-sm" id="reveal-secret-btn">Reveal</button>
+      </div>
+    `;
+    const revealBtn = document.getElementById("reveal-secret-btn");
+    if (revealBtn) {
+      revealBtn.addEventListener("click", () => {
+        dom.entryDetailContent.textContent = entry.content;
+      });
+    }
+  } else {
+    dom.entryDetailContent.textContent = entry.content;
+  }
 
   const labelInfo = entry.label 
     ? `<span class="badge badge-primary">${escapeHtml(entry.label)}</span> <span class="hint">(${Math.round((entry.label_score || 0) * 100)}%)</span>` 
@@ -187,6 +213,21 @@ function selectEntry(entry: EntryRow): void {
       ${labelInfo}
     </div>
   `;
+
+  // Show secret detection warning if applicable
+  if (entry.secret_verdict && entry.secret_verdict !== "not_secret") {
+    const verdictLabel = entry.secret_verdict === "secret" ? "🔴 Secret Detected" : "🟡 Likely Secret";
+    const typeLabel = entry.secret_type || "unknown";
+    dom.entryDetailSecretActions.innerHTML = `
+      <div class="secret-banner">
+        <span style="font-weight:600;">${verdictLabel}</span>
+        <span class="hint">(${escapeHtml(typeLabel)} · via ${escapeHtml(entry.secret_source || "unknown")})</span>
+      </div>
+    `;
+    dom.entryDetailSecretActions.hidden = false;
+  } else {
+    dom.entryDetailSecretActions.hidden = true;
+  }
 
   dom.entryDetail.hidden = false;
   document.getElementById("entry-detail-placeholder")!.hidden = true;
@@ -231,23 +272,59 @@ export async function deleteSelectedEntry(): Promise<void> {
 }
 
 async function processEntryBackground(id: string, content: string): Promise<void> {
-  try {
-    const result = await invoke<{
-      label: string;
-      label_score: number;
-      embedding: number[];
-    }>("classify_text", { text: content });
+  // Run classification and secret detection in parallel
+  const classifyPromise = invoke<{
+    label: string;
+    label_score: number;
+    embedding: number[];
+  }>("classify_text", { text: content }).catch((err) => {
+    debugLog(`Classification failed for entry ${id}: ${err}`, "WARN");
+    return null;
+  });
 
-    await invoke("db_update_entry_classification", {
-      id,
-      label: result.label,
-      labelScore: result.label_score,
-      embedding: JSON.stringify(result.embedding),
-    });
+  const secretPromise = scan(content).catch((err) => {
+    debugLog(`Secret detection failed for entry ${id}: ${err}`, "WARN");
+    return null;
+  });
+
+  const [classifyResult, secretResult] = await Promise.all([classifyPromise, secretPromise]);
+
+  try {
+    if (classifyResult) {
+      await invoke("db_update_entry_classification", {
+        id,
+        label: classifyResult.label,
+        labelScore: classifyResult.label_score,
+        embedding: JSON.stringify(classifyResult.embedding),
+      });
+    }
+
+    if (secretResult && secretResult.verdict !== "not_secret") {
+      await invoke("db_update_entry_secret", {
+        id,
+        secretVerdict: secretResult.verdict,
+        secretType: secretResult.secret_type,
+        secretSource: secretResult.source,
+      });
+    }
+
+    // Fallback: if ONNX classifier flagged as password/api_key but secret detection missed it, tag as secret
+    if (
+      classifyResult &&
+      (classifyResult.label === "password" || classifyResult.label === "api_key") &&
+      (!secretResult || secretResult.verdict === "not_secret")
+    ) {
+      await invoke("db_update_entry_secret", {
+        id,
+        secretVerdict: "likely_secret",
+        secretType: classifyResult.label,
+        secretSource: "classifier",
+      });
+    }
 
     await loadEntries(dom.searchInput.value.trim() || undefined);
   } catch (err) {
-    console.warn("Background processing failed:", err);
+    debugLog(`Background processing DB update failed for entry ${id}: ${err}`, "ERROR");
   }
 }
 

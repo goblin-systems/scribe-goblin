@@ -1,5 +1,5 @@
 export type SecretVerdict = "secret" | "likely_secret" | "not_secret";
-export type SecretSource = "trufflehog" | "sap_password_model" | "both";
+export type SecretSource = "trufflehog" | "sap_password_model" | "classifier" | "both";
 export type SecretType = "api_key" | "password" | "token" | "private_key" | "unknown";
 
 export interface SecretDetectionEvidence {

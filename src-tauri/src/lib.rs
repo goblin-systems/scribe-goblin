@@ -25,6 +25,7 @@ pub fn run() {
             db::db_list_entries,
             db::db_get_embeddings,
             db::db_update_entry_classification,
+            db::db_update_entry_secret,
             db::db_delete_entry,
             debug_log::set_debug_logging_enabled,
             debug_log::write_debug_log,
@@ -39,15 +40,31 @@ pub fn run() {
         .manage(db::DbState::default())
         .manage(debug_log::DebugLogState::default())
         .setup(|app| {
-            let resource_path = app.path().resource_dir()
-                .unwrap_or_else(|_| std::env::current_dir().unwrap())
-                .join("resources");
-            
-            let final_path = if resource_path.exists() {
-                resource_path
-            } else {
-                std::env::current_dir().unwrap().join("resources")
-            };
+            // Resolve the directory containing ONNX model files.
+            // Dev mode: cwd is src-tauri/, models live at <workspace>/resources/
+            // Production: bundle.resources copies them into resource_dir() root
+            let dev_path = std::env::current_dir().ok().and_then(|cwd| {
+                // If cwd itself has a resources/ child (workspace root)
+                let candidate = cwd.join("resources");
+                if candidate.join("classifier.onnx").exists() {
+                    return Some(candidate);
+                }
+                // If cwd is src-tauri/, check parent
+                cwd.parent()
+                    .map(|parent| parent.join("resources"))
+                    .filter(|r| r.join("classifier.onnx").exists())
+            });
+
+            let prod_path = app.path().resource_dir().ok().filter(|r| {
+                r.join("classifier.onnx").exists()
+            });
+
+            let final_path = dev_path
+                .or(prod_path)
+                .unwrap_or_else(|| {
+                    eprintln!("Warning: could not locate ONNX resources directory");
+                    std::env::current_dir().unwrap().join("resources")
+                });
 
             match classifier::ClassifierState::new(final_path) {
                 Ok(state) => {
