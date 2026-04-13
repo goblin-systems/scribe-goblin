@@ -1,21 +1,21 @@
 import { describe, test, expect, beforeAll } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { addEntry } from "../src/main/entries-controller";
+import { addNote } from "../src/main/notes-controller";
 import type { EntryRow } from "../src/store";
 
-// Mock the DOM elements used in entries-controller
+// Mock the DOM elements used in notes-controller
 const mockDom = {
   searchInput: { value: "" },
-  entriesList: { 
+  notesList: { 
     innerHTML: "", 
     appendChild: () => {},
     querySelectorAll: () => [] 
   },
-  entriesEmpty: { hidden: false },
-  entryDetail: { hidden: true },
-  entryDetailContent: { textContent: "" },
-  entryDetailMeta: { innerHTML: "" },
-  entryDetailDelete: { dataset: { id: "" } },
+  notesEmpty: { hidden: false },
+  noteDetail: { hidden: true },
+  noteDetailContent: { textContent: "" },
+  noteDetailMeta: { innerHTML: "" },
+  noteDetailDelete: { dataset: { id: "" } },
 } as any;
 
 describe("Database Integration", () => {
@@ -79,6 +79,59 @@ describe("Database Integration", () => {
     expect(entries[0].label).toBe("code");
     expect(entries[0].label_score).toBe(0.95);
     expect(entries[0].embedding).toBe(embedding);
+  });
+
+  test("should add and remove manual badges with normalization", async () => {
+    const id = await invoke<string>("db_add_entry", {
+      content: "Manual badge test",
+      htmlContent: null,
+      source: "manual",
+      sourceApp: null,
+      createdAt: Date.now()
+    });
+
+    await invoke("db_add_manual_badge", { id, badge: "  Work  ", color: "default" });
+    await invoke("db_add_manual_badge", { id, badge: "work", color: "default" });
+    await invoke("db_add_manual_badge", { id, badge: "Personal", color: "blue" });
+
+    let entries = await invoke<EntryRow[]>("db_list_entries", { search: "work", limit: 10 });
+    const match = entries.find((entry) => entry.id === id);
+    expect(match?.manual_badges).toBe(JSON.stringify([{name:"work",color:"default"},{name:"personal",color:"blue"}]));
+
+    await invoke("db_remove_manual_badge", { id, badge: "WORK" });
+    entries = await invoke<EntryRow[]>("db_list_entries", { search: "personal", limit: 10 });
+    const updated = entries.find((entry) => entry.id === id);
+    expect(updated?.manual_badges).toBe(JSON.stringify([{name:"personal",color:"blue"}]));
+
+    await invoke("db_remove_manual_badge", { id, badge: "personal" });
+    entries = await invoke<EntryRow[]>("db_list_entries", { search: "Manual badge test", limit: 10 });
+    const cleared = entries.find((entry) => entry.id === id);
+    expect(cleared?.manual_badges).toBeNull();
+  });
+
+  test("should clear auto label independently from manual badges", async () => {
+    const id = await invoke<string>("db_add_entry", {
+      content: "Clear label test",
+      htmlContent: null,
+      source: "manual",
+      sourceApp: null,
+      createdAt: Date.now()
+    });
+
+    await invoke("db_update_entry_classification", {
+      id,
+      label: "code",
+      labelScore: 0.91,
+      embedding: JSON.stringify([1, 2, 3])
+    });
+    await invoke("db_add_manual_badge", { id, badge: "kept", color: "default" });
+    await invoke("db_clear_entry_label", { id });
+
+    const entries = await invoke<EntryRow[]>("db_list_entries", { search: "Clear label test", limit: 10 });
+    const match = entries.find((entry) => entry.id === id);
+    expect(match?.label).toBeNull();
+    expect(match?.label_score).toBeNull();
+    expect(match?.manual_badges).toBe(JSON.stringify([{name:"kept",color:"default"}]));
   });
 
   test("should classify text", async () => {

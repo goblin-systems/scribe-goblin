@@ -11,27 +11,29 @@ import { runPasswordModel } from "./password-model";
 /**
  * Main secret detection entry point.
  * Uses a two-stage hybrid approach:
- * 1. TruffleHog (Primary - known patterns)
+ * 1. TruffleHog (Primary - native CLI then regex fallback)
  * 2. SAP/password-model (Fallback - suspicious text)
  */
 export async function scan(text: string, context?: SecretDetectionContext): Promise<SecretDetectionResult> {
   const normalizedText = text.trim();
   
-  // Stage 1: TruffleHog
-  const truffleHogMatch = runTruffleHog(normalizedText);
+  // Stage 1: TruffleHog (tries native CLI first, falls back to regex)
+  const truffleHogMatch = await runTruffleHog(normalizedText);
   if (truffleHogMatch) {
-    // TruffleHog is positive
-    // For now we assume high-confidence if it matches a regex. 
-    // TruffleHog v3 verified matches are 'secret', unverified are 'likely_secret'.
-    // Here we treat it as 'secret' if it's a known provider key.
+    // Native verified → "secret", native unverified → "likely_secret",
+    // regex fallback (no verified field) → "secret" (preserves existing behavior)
+    const verdict: SecretVerdict =
+      truffleHogMatch.verified === false ? "likely_secret" : "secret";
+
     return {
-      verdict: "secret",
+      verdict,
       source: "trufflehog",
       secret_type: truffleHogMatch.type,
       confidence: truffleHogMatch.confidence,
       reason: `Flagged by TruffleHog: ${truffleHogMatch.detector}`,
       evidence: {
         trufflehog_detector: truffleHogMatch.detector,
+        trufflehog_verified: truffleHogMatch.verified,
       }
     };
   }

@@ -20,13 +20,16 @@ export function populateSettingsUI(dom: ScribeDom, settings: Settings): void {
   // Debug section
   dom.debugLoggingCheckbox.checked = settings.debugLoggingEnabled;
 
+  // TruffleHog
+  dom.trufflehogPathInput.value = settings.trufflehogPath;
+
   updateProviderSetupSections(dom);
   updateEmbeddingVisibility(dom, settings.embeddingProvider);
   updateEnrichmentVisibility(dom, settings.enrichmentEnabled);
 }
 export function updateProviderSetupSections(dom: ScribeDom): void {
   const provider = dom.providerSetupSelect.value;
-  dom.setupOpenAiSection.hidden = provider !== "openai";
+  dom.setupOpenaiSection.hidden = provider !== "openai";
   dom.setupGeminiSection.hidden = provider !== "gemini";
   dom.setupOllamaSection.hidden = provider !== "ollama";
   dom.setupLocalSection.hidden = provider !== "local";
@@ -203,6 +206,7 @@ export function readSettingsFromForm(dom: ScribeDom, current: Settings): Setting
     enrichmentProvider,
     enrichmentModel: enrichmentModelValue || "",
     debugLoggingEnabled: dom.debugLoggingCheckbox.checked,
+    trufflehogPath: dom.trufflehogPathInput.value.trim(),
   };
 }
 

@@ -4,6 +4,7 @@ mod debug_log;
 mod http_proxy;
 mod keyboard;
 mod classifier;
+mod trufflehog;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -25,8 +26,13 @@ pub fn run() {
             db::db_list_entries,
             db::db_get_embeddings,
             db::db_update_entry_classification,
+            db::db_clear_entry_label,
+            db::db_add_manual_badge,
+            db::db_remove_manual_badge,
             db::db_update_entry_secret,
             db::db_delete_entry,
+            db::db_promote_to_note,
+            db::db_demote_from_note,
             debug_log::set_debug_logging_enabled,
             debug_log::write_debug_log,
             debug_log::open_debug_log_folder,
@@ -35,10 +41,13 @@ pub fn run() {
             keyboard::simulate_paste,
             get_cursor_position,
             classifier::classify_text,
+            trufflehog::trufflehog_check,
+            trufflehog::trufflehog_scan,
         ])
         .manage(clipboard::ClipboardState::default())
         .manage(db::DbState::default())
         .manage(debug_log::DebugLogState::default())
+        .manage(trufflehog::TruffleHogState::default())
         .setup(|app| {
             // Resolve the directory containing ONNX model files.
             // Dev mode: cwd is src-tauri/, models live at <workspace>/resources/

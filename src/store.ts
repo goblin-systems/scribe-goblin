@@ -7,10 +7,34 @@ export interface EntryRow {
   created_at: number;
   label: string | null;
   label_score: number | null;
+  manual_badges: string | null;
   embedding: string | null;  // JSON number[]
   secret_verdict: string | null;
   secret_type: string | null;
   secret_source: string | null;
+  is_note: boolean;
+}
+
+export interface ManualBadge {
+  name: string;
+  color: string;
+}
+
+export function parseManualBadges(manual_badges: string | null): ManualBadge[] {
+  if (!manual_badges) return [];
+  try {
+    const parsed = JSON.parse(manual_badges);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item): ManualBadge => {
+      if (typeof item === "string") return { name: item, color: "default" };
+      if (typeof item === "object" && item !== null && typeof item.name === "string") {
+        return { name: item.name, color: typeof item.color === "string" ? item.color : "default" };
+      }
+      return { name: String(item), color: "default" };
+    });
+  } catch {
+    return [];
+  }
 }
 
 export function parseTags(tags: string | null): string[] {

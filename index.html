@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html data-theme="goblin" lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -8,142 +8,365 @@
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <div class="app-shell">
+    <main class="app-shell">
 
-      <!-- Titlebar -->
-      <div class="app-titlebar" data-tauri-drag-region>
-        <div class="app-title-wrap" data-tauri-drag-region>
-          <span class="window-title">Scribe Goblin</span>
+      <!-- ── Window chrome ─────────────────────────────────────────────── -->
+      <div class="window-frame-row" data-tauri-drag-region>
+        <div class="window-title-wrap">
+          <div class="window-title">Scribe Goblin</div>
         </div>
-        <div class="app-window-actions">
-          <button class="icon-btn icon-btn-sm" id="minimize-btn" title="Minimise">
+        <div class="window-actions" aria-label="Window controls">
+          <button id="window-minimize-btn" class="icon-btn window-action-btn" type="button" aria-label="Minimize" title="Minimize">
             <i data-lucide="minus"></i>
           </button>
-          <button class="icon-btn icon-btn-sm" id="close-btn" title="Close">
+          <button id="window-maximize-btn" class="icon-btn window-action-btn" type="button" aria-label="Toggle maximize" title="Toggle maximize">
+            <i data-lucide="maximize-2"></i>
+          </button>
+          <button id="window-close-btn" class="icon-btn window-action-btn" type="button" aria-label="Close" title="Close">
             <i data-lucide="x"></i>
           </button>
         </div>
       </div>
 
-      <!-- Tab bar -->
-      <div class="top-tabs" role="tablist">
-        <button class="top-tab is-active" id="tab-entries" role="tab">
-          <i data-lucide="scroll-text"></i>
-          Entries
-        </button>
-        <button class="top-tab" id="tab-settings" role="tab">
-          <i data-lucide="settings"></i>
-          Settings
-        </button>
+      <!-- ── Top navigation bar ────────────────────────────────────────── -->
+      <div class="top-bar-row">
+        <nav id="app-nav" class="nav-bar" aria-label="App menu">
+
+          <!-- File -->
+          <div class="nav-item">
+            <button class="nav-trigger" type="button">File <i data-lucide="chevron-down"></i></button>
+            <div class="nav-dropdown">
+              <button class="nav-option" type="button" data-nav-id="new-note">
+                <span class="nav-option-icon"><i data-lucide="file-plus-2"></i></span>
+                <span class="nav-option-label">New Note</span>
+                <span class="nav-option-shortcut">Ctrl+N</span>
+              </button>
+              <div class="nav-divider"></div>
+              <button class="nav-option" type="button" data-nav-id="quit">
+                <span class="nav-option-icon"><i data-lucide="log-out"></i></span>
+                <span class="nav-option-label">Quit</span>
+                <span class="nav-option-shortcut">Alt+F4</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- View -->
+          <div class="nav-item">
+            <button class="nav-trigger" type="button">View <i data-lucide="chevron-down"></i></button>
+            <div class="nav-dropdown">
+              <button id="toggle-sidebar-nav" class="nav-option" type="button" data-nav-id="toggle-sidebar">
+                <span class="nav-option-icon"><i data-lucide="panel-left-close"></i></span>
+                <span id="toggle-sidebar-nav-label" class="nav-option-label">Hide sidebar</span>
+              </button>
+              <div class="nav-divider"></div>
+              <div class="nav-option nav-option--has-sub">
+                <span class="nav-option-icon"><i data-lucide="palette"></i></span>
+                <span class="nav-option-label">Theme</span>
+                <span class="nav-option-arrow"><i data-lucide="chevron-right"></i></span>
+                <div class="nav-submenu">
+                  <button class="nav-option" type="button" data-nav-id="set-theme-goblin">
+                    <span class="nav-option-icon"><i data-lucide="circle-dot"></i></span>
+                    <span class="nav-option-label">Goblin</span>
+                  </button>
+                  <button class="nav-option" type="button" data-nav-id="set-theme-dark">
+                    <span class="nav-option-icon"><i data-lucide="circle"></i></span>
+                    <span class="nav-option-label">Dark</span>
+                  </button>
+                  <button class="nav-option" type="button" data-nav-id="set-theme-light">
+                    <span class="nav-option-icon"><i data-lucide="circle"></i></span>
+                    <span class="nav-option-label">Light</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Settings -->
+          <div class="nav-item">
+            <button class="nav-trigger" type="button">Settings <i data-lucide="chevron-down"></i></button>
+            <div class="nav-dropdown">
+              <button class="nav-option" type="button" data-nav-id="open-capture-settings">
+                <span class="nav-option-icon"><i data-lucide="clipboard-copy"></i></span>
+                <span class="nav-option-label">Capture</span>
+              </button>
+              <div class="nav-divider"></div>
+              <button class="nav-option" type="button" data-nav-id="open-providers-settings">
+                <span class="nav-option-icon"><i data-lucide="bot"></i></span>
+                <span class="nav-option-label">AI Providers</span>
+              </button>
+              <button class="nav-option" type="button" data-nav-id="open-embeddings-settings">
+                <span class="nav-option-icon"><i data-lucide="database"></i></span>
+                <span class="nav-option-label">Embeddings</span>
+              </button>
+              <button class="nav-option" type="button" data-nav-id="open-enrichment-settings">
+                <span class="nav-option-icon"><i data-lucide="sparkles"></i></span>
+                <span class="nav-option-label">Enrichment</span>
+              </button>
+              <button class="nav-option" type="button" data-nav-id="open-trufflehog-settings">
+                <span class="nav-option-icon"><i data-lucide="shield-check"></i></span>
+                <span class="nav-option-label">TruffleHog</span>
+              </button>
+              <div class="nav-divider"></div>
+              <button class="nav-option" type="button" data-nav-id="open-debug-settings">
+                <span class="nav-option-icon"><i data-lucide="bug"></i></span>
+                <span class="nav-option-label">Debug</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Help -->
+          <div class="nav-item">
+            <button class="nav-trigger" type="button">Help <i data-lucide="chevron-down"></i></button>
+            <div class="nav-dropdown">
+              <button class="nav-option" type="button" data-nav-id="open-about">
+                <span class="nav-option-icon"><i data-lucide="info"></i></span>
+                <span class="nav-option-label">About</span>
+              </button>
+              <div class="nav-divider"></div>
+              <button class="nav-option" type="button" data-nav-id="open-debug-folder">
+                <span class="nav-option-icon"><i data-lucide="folder-open"></i></span>
+                <span class="nav-option-label">Open Logs Folder</span>
+              </button>
+            </div>
+          </div>
+
+        </nav>
       </div>
 
-      <!-- ── Entries panel ──────────────────────────────────────────────── -->
-      <div id="panel-entries" class="panel" role="tabpanel">
+      <!-- ── App body ───────────────────────────────────────────────────── -->
+      <div class="app-body">
 
-        <!-- Toolbar -->
-        <div class="entries-toolbar">
-          <div class="search-wrap">
-            <i data-lucide="search" class="search-icon"></i>
-            <input
-              type="text"
-              id="search-input"
-              class="search-input"
-              placeholder="Search entries…"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <button class="icon-btn icon-btn-sm" id="search-clear-btn" title="Clear" hidden>
+        <!-- Sidebar -->
+        <aside id="app-sidebar" class="app-sidebar">
+          <div class="sidebar-section">
+            <nav class="sidebar-nav">
+              <button class="sidebar-nav-item is-active" type="button" data-view="notes">
+                <i data-lucide="sticky-note"></i>
+                <span>Notes</span>
+              </button>
+              <button class="sidebar-nav-item" type="button" data-view="clipboard">
+                <i data-lucide="clipboard"></i>
+                <span>Clipboard</span>
+              </button>
+            </nav>
+          </div>
+          <div class="sidebar-section sidebar-section--bottom">
+            <div class="sidebar-actions">
+              <button id="show-overlay-btn" class="secondary-btn sidebar-action-btn" type="button">
+                <i data-lucide="app-window"></i>
+                <span>Overlay</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Main panel -->
+        <section class="main-panel">
+
+          <!-- ── Notes view ──────────────────────────────────────────── -->
+          <div id="view-notes" class="view-panel is-active">
+
+            <!-- Toolbar -->
+            <div class="notes-toolbar">
+              <div class="search-wrap">
+                <i data-lucide="search" class="search-icon"></i>
+                <input
+                  type="text"
+                  id="search-input"
+                  class="search-input"
+                  placeholder="Search notes…"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button class="icon-btn icon-btn-sm" id="search-clear-btn" type="button" title="Clear" hidden>
+                  <i data-lucide="x"></i>
+                </button>
+              </div>
+              <button class="secondary-btn slim-btn" id="add-note-btn" type="button">
+                <i data-lucide="plus"></i>
+                Add note
+              </button>
+            </div>
+
+            <!-- Quick-add form -->
+            <div id="quick-add-form" class="quick-add-form" hidden>
+              <textarea
+                id="quick-add-input"
+                class="input-field"
+                placeholder="Type a note… (Ctrl+Enter to save, Esc to cancel)"
+                rows="3"
+              ></textarea>
+              <div class="row gap-2">
+                <button class="secondary-btn slim-btn" id="quick-add-save-btn" type="button">
+                  <i data-lucide="check"></i>
+                  Save
+                </button>
+                <button class="secondary-btn slim-btn" id="quick-add-cancel-btn" type="button">Cancel</button>
+              </div>
+            </div>
+
+            <!-- List + detail side by side -->
+            <div class="notes-body">
+
+              <!-- Entry list -->
+              <div id="notes-list" class="notes-list"></div>
+
+              <!-- Empty state (shown when no entries) -->
+              <div id="notes-empty" class="notes-empty" hidden>
+                <i data-lucide="scroll-text" style="width:32px;height:32px;opacity:0.2;"></i>
+                <p class="hint">No notes yet.<br />Use the + button to add a note, or promote clipboard items from the Clipboard tab.</p>
+              </div>
+
+              <!-- Entry detail -->
+              <div id="note-detail" class="note-detail" hidden>
+                <div class="note-detail-header">
+                  <h3>Note</h3>
+                  <button class="icon-btn icon-btn-sm" id="note-detail-delete" type="button" title="Delete note">
+                    <i data-lucide="trash-2"></i>
+                  </button>
+                  <button class="icon-btn icon-btn-sm" id="note-detail-close" type="button" title="Close">
+                    <i data-lucide="x"></i>
+                  </button>
+                </div>
+                <div class="note-detail-body">
+                  <div id="note-detail-content" class="note-detail-content"></div>
+                  <div id="note-detail-secret-actions" class="note-detail-secret-actions" hidden></div>
+                  <div id="note-detail-meta" class="note-detail-meta"></div>
+                </div>
+              </div>
+
+              <!-- Placeholder when no entry selected -->
+              <div id="note-detail-placeholder" class="note-detail-placeholder">
+                <i data-lucide="mouse-pointer-click" style="width:28px;height:28px;opacity:0.2;"></i>
+                <p class="hint" style="margin:0;">Select a note to read it</p>
+              </div>
+
+            </div>
+
+            <!-- Status bar -->
+            <div class="editor-status-bar">
+              <div class="editor-status-main">
+                <span id="notes-status-left">Notes</span>
+              </div>
+              <div class="editor-status-actions">
+                <span class="text-subtle">v0.1.0</span>
+                <button class="secondary-btn slim-btn" type="button" id="show-overlay-status-btn">
+                  <i data-lucide="app-window"></i>
+                  <span>Overlay</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Clipboard view ─────────────────────────────────────────── -->
+          <div id="view-clipboard" class="view-panel" hidden>
+
+            <!-- Toolbar -->
+            <div class="notes-toolbar">
+              <div class="search-wrap">
+                <i data-lucide="search" class="search-icon"></i>
+                <input
+                  type="text"
+                  id="clipboard-search-input"
+                  class="search-input"
+                  placeholder="Search clipboard…"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button class="icon-btn icon-btn-sm" id="clipboard-search-clear-btn" type="button" title="Clear" hidden>
+                  <i data-lucide="x"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- List + detail side by side -->
+            <div class="notes-body" id="clipboard-body">
+
+              <!-- Entry list -->
+              <div id="clipboard-list" class="notes-list"></div>
+
+              <!-- Empty state (shown when no entries) -->
+              <div id="clipboard-empty" class="notes-empty" hidden>
+                <i data-lucide="clipboard" style="width:32px;height:32px;opacity:0.2;"></i>
+                <p class="hint">No clipboard items yet.<br />Enable clipboard monitoring in Settings &gt; Capture.</p>
+              </div>
+
+              <!-- Entry detail -->
+              <div id="clipboard-detail" class="note-detail" hidden>
+                <div class="note-detail-header">
+                  <h3>Clipboard Item</h3>
+                  <button class="icon-btn icon-btn-sm" id="clipboard-detail-delete" type="button" title="Delete item">
+                    <i data-lucide="trash-2"></i>
+                  </button>
+                  <button class="icon-btn icon-btn-sm" id="clipboard-detail-close" type="button" title="Close">
+                    <i data-lucide="x"></i>
+                  </button>
+                </div>
+                <div class="note-detail-body">
+                  <div id="clipboard-detail-content" class="note-detail-content"></div>
+                  <div id="clipboard-detail-secret-actions" class="note-detail-secret-actions" hidden></div>
+                  <div id="clipboard-detail-meta" class="note-detail-meta"></div>
+                </div>
+              </div>
+
+              <!-- Placeholder when no entry selected -->
+              <div id="clipboard-detail-placeholder" class="note-detail-placeholder">
+                <i data-lucide="mouse-pointer-click" style="width:28px;height:28px;opacity:0.2;"></i>
+                <p class="hint" style="margin:0;">Select an item to view it</p>
+              </div>
+
+            </div>
+
+            <!-- Status bar -->
+            <div class="editor-status-bar">
+              <div class="editor-status-main">
+                <span id="clipboard-status-left">Clipboard</span>
+              </div>
+              <div class="editor-status-actions">
+                <span class="text-subtle">v0.1.0</span>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+      </div>
+
+      <!-- ── Modals ─────────────────────────────────────────────────────── -->
+
+      <!-- Capture Settings -->
+      <div id="capture-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="capture-settings-title">
+          <div class="modal-header">
+            <h3 id="capture-settings-title">Capture Settings</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
               <i data-lucide="x"></i>
             </button>
           </div>
-          <button class="secondary-btn slim-btn" id="add-entry-btn">
-            <i data-lucide="plus"></i>
-            Add note
-          </button>
-        </div>
-
-        <!-- Quick-add form -->
-        <div id="quick-add-form" class="quick-add-form" hidden>
-          <textarea
-            id="quick-add-input"
-            class="input-field"
-            placeholder="Type a note… (Ctrl+Enter to save, Esc to cancel)"
-            rows="3"
-          ></textarea>
-          <div class="row gap-2">
-            <button class="secondary-btn slim-btn" id="quick-add-save-btn">
-              <i data-lucide="check"></i>
-              Save
-            </button>
-            <button class="secondary-btn slim-btn" id="quick-add-cancel-btn">Cancel</button>
+          <div class="modal-form-grid">
+            <label class="checkbox-label">
+              <input id="clipboard-monitoring-checkbox" type="checkbox" />
+              <span>Monitor clipboard automatically</span>
+            </label>
+            <p class="hint">Anything you copy is saved as an entry in the background.</p>
           </div>
-        </div>
-
-        <!-- List + detail side by side -->
-        <div class="entries-body">
-
-          <!-- Entry list -->
-          <div id="entries-list" class="entries-list"></div>
-
-          <!-- Empty state (shown when no entries) -->
-          <div id="entries-empty" class="entries-empty" hidden>
-            <i data-lucide="scroll-text" style="width:32px;height:32px;opacity:0.2;"></i>
-            <p class="hint">No entries yet.<br />Anything you copy will appear here automatically.</p>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
           </div>
-
-          <!-- Entry detail -->
-          <div id="entry-detail" class="entry-detail" hidden>
-            <div class="entry-detail-header">
-              <h3>Entry</h3>
-              <button class="icon-btn icon-btn-sm" id="entry-detail-delete" title="Delete entry">
-                <i data-lucide="trash-2"></i>
-              </button>
-              <button class="icon-btn icon-btn-sm" id="entry-detail-close" title="Close">
-                <i data-lucide="x"></i>
-              </button>
-            </div>
-            <div class="entry-detail-body">
-              <div id="entry-detail-content" class="entry-detail-content"></div>
-              <div id="entry-detail-secret-actions" class="entry-detail-secret-actions" hidden></div>
-              <div id="entry-detail-meta" class="entry-detail-meta"></div>
-            </div>
-          </div>
-
-          <!-- Placeholder when no entry selected -->
-          <div id="entry-detail-placeholder" class="entry-detail-placeholder">
-            <i data-lucide="mouse-pointer-click" style="width:28px;height:28px;opacity:0.2;"></i>
-            <p class="hint" style="margin:0;">Select an entry to read it</p>
-          </div>
-
         </div>
       </div>
 
-      <!-- ── Settings panel ─────────────────────────────────────────────── -->
-      <div id="panel-settings" class="panel" hidden role="tabpanel">
-        <div class="settings-scroll">
-
-          <!-- Capture -->
-          <div class="settings-section">
-            <div class="section-heading-row">
-              <h2>Capture</h2>
-            </div>
-            <label class="row gap-2" style="cursor:pointer;align-items:center;">
-              <input type="checkbox" id="clipboard-monitoring-checkbox" />
-              <span>Monitor clipboard automatically</span>
-            </label>
-            <p class="hint" style="margin-top:6px;">
-              Anything you copy is saved as an entry in the background.
-            </p>
+      <!-- AI Providers Settings -->
+      <div id="providers-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="providers-settings-title">
+          <div class="modal-header">
+            <h3 id="providers-settings-title">AI Providers</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
           </div>
-
-          <!-- AI Providers -->
-          <div class="settings-section">
-            <div class="section-heading-row">
-              <h2>AI Providers</h2>
-            </div>
-            <p class="hint">
-              Configure your API keys once to use them for both embeddings and AI enrichment.
-            </p>
+          <div class="modal-body">
+            <p class="hint">Configure your API keys once to use them for both embeddings and AI enrichment.</p>
 
             <div class="field-block" style="margin-top:12px;">
               <label class="field-label" for="provider-setup-select">Configure Provider</label>
@@ -166,7 +389,7 @@
                 <label class="field-label" for="openai-api-key">OpenAI API Key</label>
                 <div class="row gap-2 api-key-row">
                   <input type="password" id="openai-api-key" class="input-field" placeholder="sk-…" autocomplete="off" />
-                  <button class="icon-btn" id="toggle-openai-key-btn" title="Show/hide">
+                  <button class="icon-btn" id="toggle-openai-key-btn" type="button" title="Show/hide">
                     <i data-lucide="eye"></i>
                   </button>
                 </div>
@@ -179,7 +402,7 @@
                 <label class="field-label" for="gemini-api-key">Gemini API Key</label>
                 <div class="row gap-2 api-key-row">
                   <input type="password" id="gemini-api-key" class="input-field" placeholder="AIza…" autocomplete="off" />
-                  <button class="icon-btn" id="toggle-gemini-key-btn" title="Show/hide">
+                  <button class="icon-btn" id="toggle-gemini-key-btn" type="button" title="Show/hide">
                     <i data-lucide="eye"></i>
                   </button>
                 </div>
@@ -205,39 +428,56 @@
               </button>
             </div>
           </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
 
-          <!-- Embeddings -->
-          <div class="settings-section">
-            <div class="section-heading-row">
-              <h2>Embeddings</h2>
-            </div>
-            <p class="hint">
-              Embeddings enable semantic search — finding entries by meaning, not just keywords.
-            </p>
+      <!-- Embeddings Settings -->
+      <div id="embeddings-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="embeddings-settings-title">
+          <div class="modal-header">
+            <h3 id="embeddings-settings-title">Embeddings</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="hint">Embeddings enable semantic search &mdash; finding entries by meaning, not just keywords.</p>
 
             <div class="field-block" style="margin-top:12px;">
               <label class="field-label" for="embedding-unified-model-select">Model</label>
               <div class="row gap-2">
                 <select id="embedding-unified-model-select" class="select-field" style="flex:1;"></select>
-                <input type="text" id="embedding-model-input" class="input-field" style="flex:1;" hidden placeholder="Ollama model..." />
-                <button class="icon-btn" id="refresh-embedding-models-btn" title="Refresh model list">
+                <input type="text" id="embedding-model-input" class="input-field" style="flex:1;" hidden placeholder="Ollama model…" />
+                <button class="icon-btn" id="refresh-embedding-models-btn" type="button" title="Refresh model list">
                   <i data-lucide="refresh-cw"></i>
                 </button>
               </div>
               <p id="embedding-model-hint" class="hint" style="margin-top:4px;"></p>
             </div>
           </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
 
-          <!-- AI Enrichment -->
-          <div class="settings-section">
-            <div class="section-heading-row">
-              <h2>AI Enrichment</h2>
-            </div>
-            <p class="hint">
-              Automatically summarise entries and generate tags in the background after capture.
-            </p>
-            <label class="row gap-2" style="cursor:pointer;align-items:center;margin-top:10px;">
-              <input type="checkbox" id="enrichment-enabled-checkbox" />
+      <!-- Enrichment Settings -->
+      <div id="enrichment-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="enrichment-settings-title">
+          <div class="modal-header">
+            <h3 id="enrichment-settings-title">AI Enrichment</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="hint">Automatically summarise entries and generate tags in the background after capture.</p>
+
+            <label class="checkbox-label" style="margin-top:10px;">
+              <input id="enrichment-enabled-checkbox" type="checkbox" />
               <span>Enable AI enrichment</span>
             </label>
 
@@ -246,7 +486,7 @@
                 <label class="field-label" for="enrichment-unified-model-select">Model</label>
                 <div class="row gap-2">
                   <select id="enrichment-unified-model-select" class="select-field" style="flex:1;"></select>
-                  <button class="icon-btn" id="refresh-enrichment-models-btn" title="Refresh model list">
+                  <button class="icon-btn" id="refresh-enrichment-models-btn" type="button" title="Refresh model list">
                     <i data-lucide="refresh-cw"></i>
                   </button>
                 </div>
@@ -254,32 +494,127 @@
               </div>
             </div>
           </div>
-
-          <!-- Debug -->
-          <div class="settings-section">
-            <div class="section-heading-row">
-              <h2>Debug</h2>
-            </div>
-            <label class="row gap-2" style="cursor:pointer;align-items:center;">
-              <input type="checkbox" id="debug-logging-checkbox" />
-              <span>Enable debug logging</span>
-            </label>
-            <p id="debug-log-path" class="hint" style="margin-top:6px;">Debug logs are disabled.</p>
-            <div style="margin-top:8px;">
-              <button class="secondary-btn slim-btn" id="open-debug-folder-btn" disabled>
-                <i data-lucide="folder-open"></i>
-                Open log folder
-              </button>
-            </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
           </div>
-
-          <div class="settings-footer">
-            <p class="hint" style="font-size:var(--font-size-xs);">Scribe Goblin v0.1.0</p>
-          </div>
-
         </div>
       </div>
 
-    </div>
+      <!-- TruffleHog Settings -->
+      <div id="trufflehog-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="trufflehog-settings-title">
+          <div class="modal-header">
+            <h3 id="trufflehog-settings-title">TruffleHog</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="hint">TruffleHog scans clipboard content for real-world secrets (API keys, tokens, passwords). It runs locally via the CLI binary.</p>
+
+            <div class="field-block" style="margin-top:12px;">
+              <label class="field-label" for="trufflehog-path-input">Custom binary path <span class="text-subtle">(optional)</span></label>
+              <input type="text" id="trufflehog-path-input" class="input-field" placeholder="Leave empty to auto-detect from PATH" autocomplete="off" />
+              <p id="trufflehog-path-hint" class="hint" style="margin-top:4px;">Click Test to check TruffleHog availability.</p>
+            </div>
+
+            <div class="row gap-2" style="margin-top:12px;align-items:center;">
+              <span id="trufflehog-status" class="status-indicator disconnected">
+                <span class="status-dot"></span>
+                <span class="status-text">Not tested</span>
+              </span>
+              <button class="secondary-btn slim-btn" id="test-trufflehog-btn" type="button">
+                <i data-lucide="zap"></i>
+                Test
+              </button>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Debug Settings -->
+      <div id="debug-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="debug-settings-title">
+          <div class="modal-header">
+            <h3 id="debug-settings-title">Debug</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-form-grid">
+            <label class="checkbox-label">
+              <input id="debug-logging-checkbox" type="checkbox" />
+              <span>Enable debug logging to local file</span>
+            </label>
+            <button id="open-debug-folder-btn" class="secondary-btn" type="button" disabled>
+              <i data-lucide="folder-open"></i>
+              <span>Open logs folder</span>
+            </button>
+            <p id="debug-log-path" class="hint">Debug logs are disabled.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- About -->
+      <div id="about-modal" class="modal-backdrop" hidden>
+        <div class="modal-card modal-card--sm" role="dialog" aria-modal="true" aria-labelledby="about-title">
+          <div class="modal-header">
+            <h3 id="about-title">About Scribe Goblin</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="text-subtle">Version 0.1.0</p>
+            <p class="text-subtle">A clipboard manager and note-taking app built with Tauri v2 and the Goblin Design System.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Badge -->
+      <div id="add-badge-modal" class="modal-backdrop" hidden>
+        <div class="modal-card modal-card--sm" role="dialog" aria-modal="true" aria-labelledby="add-badge-title">
+          <div class="modal-header">
+            <h3 id="add-badge-title">Add Badge</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="field-block">
+              <label class="field-label" for="add-badge-input">Badge name</label>
+              <input type="text" id="add-badge-input" class="input-field" placeholder="e.g. important, todo, work" autocomplete="off" />
+            </div>
+            <div class="field-block">
+              <label class="field-label">Color</label>
+              <div id="add-badge-colors" class="badge-color-picker">
+                <button type="button" class="badge-color-swatch is-selected" data-color="default" aria-label="Default color"></button>
+                <button type="button" class="badge-color-swatch swatch-blue" data-color="blue" aria-label="Blue"></button>
+                <button type="button" class="badge-color-swatch swatch-green" data-color="green" aria-label="Green"></button>
+                <button type="button" class="badge-color-swatch swatch-red" data-color="red" aria-label="Red"></button>
+                <button type="button" class="badge-color-swatch swatch-orange" data-color="orange" aria-label="Orange"></button>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Cancel</button>
+            <button class="secondary-btn modal-btn-accept" id="add-badge-confirm-btn" type="button">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toast -->
+      <div id="app-toast" class="app-toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    </main>
   </body>
 </html>

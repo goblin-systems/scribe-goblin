@@ -1,9 +1,9 @@
 import { applyIcons, showToast } from "@goblin-systems/goblin-design-system";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { register } from "@tauri-apps/plugin-global-shortcut";
-import { getDom } from "./main/dom";
+import { createDom } from "./main/dom";
+import { setupShell } from "./main/shell-controller";
 import {
   populateSettingsUI,
   updateProviderSetupSections,
@@ -16,37 +16,49 @@ import {
   readSettingsFromForm,
 } from "./main/settings-controller";
 import {
-  initEntriesController,
-  loadEntries,
+  initNotesController,
+  loadNotes,
   handleSearchInput,
-  addEntry,
-  deleteSelectedEntry,
+  addNote,
+  deleteSelectedNote,
   clearSelection,
-} from "./main/entries-controller";
+  processNoteBackground,
+} from "./main/notes-controller";
+import {
+  initClipboardController,
+  loadClipboard,
+  handleClipboardSearchInput,
+  deleteSelectedClipboardItem,
+  clearClipboardSelection,
+} from "./main/clipboard-controller";
 import {
   configureDebugLogging,
-  isDebugLoggingEnabled,
-  openDebugLogFolder,
   debugLog,
 } from "./logger";
-import { 
-  loadSettings, 
-  saveSettings, 
-  saveProviderModelCache, 
+import {
+  loadSettings,
+  saveProviderModelCache,
   fingerprintApiKey,
-  type Settings 
+  type Settings,
 } from "./settings";
 import { testEmbeddingConnection } from "./embedding";
 
+// ── App state ──────────────────────────────────────────────────────────────
+
 let currentSettings: Settings;
-const appWindow = getCurrentWindow();
 
-window.addEventListener("DOMContentLoaded", async () => {
-  applyIcons();
+function getSettings(): Settings {
+  return currentSettings;
+}
 
-  const dom = getDom();
+function setSettings(next: Settings): void {
+  currentSettings = next;
+}
 
-  // Init DB and load settings
+// ── Bootstrap ──────────────────────────────────────────────────────────────
+
+async function init() {
+  // Init DB
   try {
     await invoke("db_init");
   } catch (err) {
@@ -56,13 +68,17 @@ window.addEventListener("DOMContentLoaded", async () => {
     </div>`;
     return;
   }
+
   currentSettings = await loadSettings();
   await configureDebugLogging(currentSettings.debugLoggingEnabled);
 
-  // Populate UI
+  const dom = createDom();
+
+  const shell = setupShell({ dom, getSettings, setSettings });
+  await shell.applySettingsToUI(currentSettings);
+
   populateSettingsUI(dom, currentSettings);
-  updateDebugLogHint();
-  
+
   function initProviderStatus() {
     const provider = dom.providerSetupSelect.value;
     if (provider === "local") {
@@ -72,7 +88,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     const apiKey = provider === "openai" ? currentSettings.providers.openai.apiKey :
                    provider === "gemini" ? currentSettings.providers.gemini.apiKey :
                    currentSettings.providers.ollama.baseUrl;
-    
+
     if (!apiKey || apiKey === "http://localhost:11434") {
       updateProviderStatus("disconnected");
     } else {
@@ -81,9 +97,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
   initProviderStatus();
 
-  // Init entries controller and load first page
-  initEntriesController(dom, () => currentSettings);
-  await loadEntries();
+  // Init notes controller and load first page
+  initNotesController(dom, () => currentSettings);
+  await loadNotes();
+
+  // Init clipboard controller and load first page
+  initClipboardController(dom, () => currentSettings);
+  await loadClipboard();
 
   // Start clipboard monitoring if enabled
   if (currentSettings.clipboardMonitoring) {
@@ -110,23 +130,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     console.error("Failed to register global shortcut:", err);
   }
 
-  // ── Window controls ──────────────────────────────────────────────────────
-  dom.minimizeBtn.addEventListener("click", () => appWindow.minimize());
-  dom.closeBtn.addEventListener("click", () => appWindow.hide());
-
-  // ── Tab switching ─────────────────────────────────────────────────────────
-  function switchTab(tab: "entries" | "settings") {
-    const isEntries = tab === "entries";
-    dom.tabEntries.classList.toggle("is-active", isEntries);
-    dom.tabSettings.classList.toggle("is-active", !isEntries);
-    dom.panelEntries.hidden = !isEntries;
-    dom.panelSettings.hidden = isEntries;
-    applyIcons();
-  }
-
-  dom.tabEntries.addEventListener("click", () => switchTab("entries"));
-  dom.tabSettings.addEventListener("click", () => switchTab("settings"));
-
   // ── Search ────────────────────────────────────────────────────────────────
   dom.searchInput.addEventListener("input", () => {
     handleSearchInput(dom.searchInput.value);
@@ -134,11 +137,21 @@ window.addEventListener("DOMContentLoaded", async () => {
   dom.searchClearBtn.addEventListener("click", () => {
     dom.searchInput.value = "";
     dom.searchClearBtn.hidden = true;
-    void loadEntries();
+    void loadNotes();
+  });
+
+  // ── Clipboard search ─────────────────────────────────────────────────────
+  dom.clipboardSearchInput.addEventListener("input", () => {
+    handleClipboardSearchInput(dom.clipboardSearchInput.value);
+  });
+  dom.clipboardSearchClearBtn.addEventListener("click", () => {
+    dom.clipboardSearchInput.value = "";
+    dom.clipboardSearchClearBtn.hidden = true;
+    void loadClipboard();
   });
 
   // ── Quick add ─────────────────────────────────────────────────────────────
-  dom.addEntryBtn.addEventListener("click", () => {
+  dom.addNoteBtn.addEventListener("click", () => {
     dom.quickAddForm.hidden = false;
     dom.quickAddInput.focus();
   });
@@ -153,12 +166,12 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (!content) return;
     dom.quickAddForm.hidden = true;
     dom.quickAddInput.value = "";
-    await addEntry(content, "manual");
+    await addNote(content, "manual");
     showToast("Note saved", "success", 1200);
   });
 
   // Ctrl+Enter / Cmd+Enter to save quick add
-  dom.quickAddInput.addEventListener("keydown", (e) => {
+  dom.quickAddInput.addEventListener("keydown", (e: KeyboardEvent) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       dom.quickAddSaveBtn.click();
     }
@@ -167,10 +180,16 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // ── Entry detail ──────────────────────────────────────────────────────────
-  dom.entryDetailClose.addEventListener("click", () => clearSelection());
-  dom.entryDetailDelete.addEventListener("click", async () => {
-    await deleteSelectedEntry();
+  // ── Note detail ──────────────────────────────────────────────────────────
+  dom.noteDetailClose.addEventListener("click", () => clearSelection());
+  dom.noteDetailDelete.addEventListener("click", async () => {
+    await deleteSelectedNote();
+  });
+
+  // ── Clipboard detail ────────────────────────────────────────────────────
+  dom.clipboardDetailClose.addEventListener("click", () => clearClipboardSelection());
+  dom.clipboardDetailDelete.addEventListener("click", async () => {
+    await deleteSelectedClipboardItem();
   });
 
   // ── Clipboard listener ────────────────────────────────────────────────────
@@ -178,11 +197,27 @@ window.addEventListener("DOMContentLoaded", async () => {
     debugLog("clipboard-capture event received", "INFO");
     const { content, html_content, source_app } = event.payload;
     try {
-      await addEntry(content, "clipboard", html_content, source_app);
+      const id = await invoke<string>("db_add_entry", {
+        content,
+        htmlContent: html_content,
+        source: "clipboard",
+        sourceApp: source_app,
+        createdAt: Date.now(),
+      });
+      await loadClipboard();
+      await loadNotes();
+      void processNoteBackground(id, content);
       debugLog("clipboard-capture processed successfully", "INFO");
     } catch (err) {
       debugLog(`clipboard-capture processing failed: ${err}`, "ERROR");
     }
+  });
+
+  await listen("entries-changed", async () => {
+    await Promise.all([
+      loadNotes(dom.searchInput.value.trim() || undefined),
+      loadClipboard(dom.clipboardSearchInput.value.trim() || undefined),
+    ]);
   });
 
   // ── Settings changes ──────────────────────────────────────────────────────
@@ -191,7 +226,6 @@ window.addEventListener("DOMContentLoaded", async () => {
       const wasMonitoring = currentSettings.clipboardMonitoring;
       currentSettings = updated;
       configureDebugLogging(updated.debugLoggingEnabled);
-      updateDebugLogHint();
 
       // Toggle clipboard monitoring if changed
       if (updated.clipboardMonitoring !== wasMonitoring) {
@@ -210,7 +244,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   };
 
   dom.clipboardMonitoringCheckbox.addEventListener("change", () => onSettingsChange(0));
-  
+
   // Provider Setup
   dom.providerSetupSelect.addEventListener("change", () => {
     updateProviderSetupSections(dom);
@@ -247,6 +281,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Debug
   dom.debugLoggingCheckbox.addEventListener("change", () => onSettingsChange(0));
 
+  // TruffleHog
+  dom.trufflehogPathInput.addEventListener("input", () => onSettingsChange());
+
   // ── API key show/hide toggles ─────────────────────────────────────────────
   function toggleKeyVisibility(input: HTMLInputElement, btn: HTMLButtonElement) {
     const isHidden = input.type === "password";
@@ -256,8 +293,8 @@ window.addEventListener("DOMContentLoaded", async () => {
     applyIcons();
   }
 
-  dom.toggleOpenAiKeyBtn.addEventListener("click", () =>
-    toggleKeyVisibility(dom.openaiApiKey, dom.toggleOpenAiKeyBtn)
+  dom.toggleOpenaiKeyBtn.addEventListener("click", () =>
+    toggleKeyVisibility(dom.openaiApiKey, dom.toggleOpenaiKeyBtn)
   );
   dom.toggleGeminiKeyBtn.addEventListener("click", () =>
     toggleKeyVisibility(dom.geminiApiKey, dom.toggleGeminiKeyBtn)
@@ -294,13 +331,44 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
+  // ── TruffleHog Status UI ──────────────────────────────────────────────────
+  function updateTrufflehogStatus(status: "connected" | "connecting" | "untested" | "disconnected" | "error", message?: string) {
+    const statusText = dom.trufflehogStatus.querySelector(".status-text") as HTMLElement;
+    if (!statusText) return;
+
+    dom.trufflehogStatus.className = "status-indicator";
+
+    switch (status) {
+      case "connected":
+        dom.trufflehogStatus.classList.add("connected");
+        statusText.textContent = message || "Ready";
+        break;
+      case "connecting":
+        dom.trufflehogStatus.classList.add("disconnected");
+        statusText.textContent = "Testing...";
+        break;
+      case "untested":
+        dom.trufflehogStatus.classList.add("untested");
+        statusText.textContent = "Not tested";
+        break;
+      case "disconnected":
+        dom.trufflehogStatus.classList.add("disconnected");
+        statusText.textContent = "Not configured";
+        break;
+      case "error":
+        dom.trufflehogStatus.classList.add("error");
+        statusText.textContent = message || "Not found";
+        break;
+    }
+  }
+
   // ── Test provider connection ─────────────────────────────────────────────
   dom.testProviderBtn.addEventListener("click", async () => {
     debugLog("testProviderBtn clicked", "INFO");
     try {
       const provider = dom.providerSetupSelect.value as "openai" | "gemini" | "ollama" | "local";
       debugLog(`Testing connection for provider: ${provider}`, "INFO");
-      
+
       if (provider === "local") {
         updateProviderStatus("connected");
         showToast("Local classifier is ready", "success");
@@ -310,7 +378,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       // Get the currently entered API key explicitly
       let keyToCheck = "";
       let tempSettings: Settings = JSON.parse(JSON.stringify(currentSettings));
-      
+
       if (provider === "openai") {
         keyToCheck = dom.openaiApiKey.value.trim();
         tempSettings.providers.openai.apiKey = keyToCheck;
@@ -320,7 +388,7 @@ window.addEventListener("DOMContentLoaded", async () => {
       } else if (provider === "ollama") {
         tempSettings.providers.ollama.baseUrl = dom.ollamaBaseUrl.value.trim();
       }
-      
+
       if (provider !== "ollama" && !keyToCheck) {
         updateProviderStatus("error", "API key is required");
         showToast("API key is required", "error");
@@ -338,7 +406,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
       // 2. Re-read settings now that UI dropdowns are populated with valid models
       const updatedSettings = readSettingsFromForm(dom, currentSettings);
-      
+
       let testModel = "";
       if (provider === "ollama") {
         testModel = updatedSettings.embeddingModel || "nomic-embed-text";
@@ -352,12 +420,12 @@ window.addEventListener("DOMContentLoaded", async () => {
       }
 
       debugLog(`Invoking testEmbeddingConnection with dynamically selected model: ${testModel}`, "INFO");
-      const result = await testEmbeddingConnection({ 
-        ...updatedSettings, 
+      const result = await testEmbeddingConnection({
+        ...updatedSettings,
         embeddingProvider: provider,
-        embeddingModel: testModel 
+        embeddingModel: testModel,
       });
-      
+
       debugLog(`testEmbeddingConnection result: ${result}`, "INFO");
       if (result === "ok") {
         updateProviderStatus("connected");
@@ -378,13 +446,51 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // ── Test TruffleHog ───────────────────────────────────────────────────────
+  dom.testTrufflehogBtn.addEventListener("click", async () => {
+    debugLog("testTrufflehogBtn clicked", "INFO");
+    try {
+      updateTrufflehogStatus("connecting");
+      dom.testTrufflehogBtn.disabled = true;
+
+      const customPath = dom.trufflehogPathInput.value.trim() || null;
+      const status = await invoke<{
+        available: boolean;
+        path: string | null;
+        version: string | null;
+        supports_stdin: boolean;
+      }>("trufflehog_check", { customPath });
+
+      debugLog(`trufflehog_check result: available=${status.available}, path=${status.path}, version=${status.version}, stdin=${status.supports_stdin}`, "INFO");
+
+      if (status.available) {
+        const versionStr = status.version ? ` v${status.version}` : "";
+        const stdinStr = status.supports_stdin ? " (stdin)" : " (file mode)";
+        updateTrufflehogStatus("connected", `Found${versionStr}${stdinStr}`);
+        dom.trufflehogPathHint.textContent = status.path || "Auto-detected from PATH";
+        showToast("TruffleHog detected", "success", 1500);
+      } else {
+        updateTrufflehogStatus("error", "Not found");
+        dom.trufflehogPathHint.textContent = "TruffleHog binary not found. Install it or provide a custom path.";
+        showToast("TruffleHog not found", "error");
+      }
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      debugLog(`testTrufflehogBtn error: ${errMsg}`, "ERROR");
+      updateTrufflehogStatus("error", errMsg);
+      showToast(`Error: ${errMsg}`, "error");
+    } finally {
+      dom.testTrufflehogBtn.disabled = false;
+    }
+  });
+
   // ── Refresh models ────────────────────────────────────────────────────────
   async function refreshModels(provider: "openai" | "gemini"): Promise<void> {
     const btnEmbed = dom.refreshEmbeddingModelsBtn;
     const btnChat = dom.refreshEnrichmentModelsBtn;
     const hintEmbed = dom.embeddingModelHint;
     const hintChat = dom.enrichmentModelHint;
-    
+
     btnEmbed.disabled = true;
     btnChat.disabled = true;
     hintEmbed.textContent = "Fetching models…";
@@ -397,19 +503,19 @@ window.addEventListener("DOMContentLoaded", async () => {
 
       const embeddingModels = await fetchModelsFromApi(provider, "embedding", apiKey);
       const chatModels = await fetchModelsFromApi(provider, "chat", apiKey);
-      
+
       await saveProviderModelCache(provider, {
         apiKeyFingerprint: fingerprintApiKey(apiKey),
         fetchedAt: Date.now(),
         embeddingModels,
-        chatModels
+        chatModels,
       });
 
       // Reload settings and update UI
       currentSettings = await loadSettings();
       updateEmbeddingModelOptions(dom, currentSettings);
       updateEnrichmentModelOptions(dom, currentSettings);
-      
+
       showToast("Models updated", "success", 1500);
     } catch (err) {
       hintEmbed.textContent = `Error: ${String(err)}`;
@@ -438,25 +544,20 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // ── Debug log folder ──────────────────────────────────────────────────────
-  dom.openDebugFolderBtn.addEventListener("click", async () => {
-    try {
-      await openDebugLogFolder();
-    } catch (err) {
-      console.error("Failed to open debug log folder:", err);
-    }
-  });
-
   // ── Cleanup ───────────────────────────────────────────────────────────────
   window.addEventListener("beforeunload", () => {
     cancelAutosave();
     invoke("stop_clipboard_monitor");
   });
-});
+}
+
+init().catch((err) => console.error("Failed to initialise app:", err));
+
+// ── Standalone utilities ────────────────────────────────────────────────────
 
 async function fetchModelsFromApi(provider: "openai" | "gemini", type: "embedding" | "chat", apiKey: string): Promise<string[]> {
   debugLog(`fetchModelsFromApi: provider=${provider}, type=${type}`, "INFO");
-  const url = provider === "openai" 
+  const url = provider === "openai"
     ? "https://api.openai.com/v1/models"
     : `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
 
@@ -466,13 +567,13 @@ async function fetchModelsFromApi(provider: "openai" | "gemini", type: "embeddin
   }
 
   debugLog(`fetchModelsFromApi sending GET to ${url.split("?")[0]}`, "INFO");
-  const response: any = await invoke("http_fetch", { 
+  const response: any = await invoke("http_fetch", {
     request: {
-        url, 
-        method: "GET", 
+        url,
+        method: "GET",
         headers,
-        body: null
-    }
+        body: null,
+    },
   });
 
   debugLog(`fetchModelsFromApi response status: ${response.status}`, "INFO");
@@ -505,16 +606,5 @@ async function fetchModelsFromApi(provider: "openai" | "gemini", type: "embeddin
   } catch (err) {
     debugLog(`fetchModelsFromApi parsing error: ${err}`, "ERROR");
     throw err;
-  }
-}
-
-function updateDebugLogHint() {
-  const dom = getDom();
-  if (!isDebugLoggingEnabled()) {
-    dom.debugLogPath.textContent = "Debug logs are disabled.";
-    dom.openDebugFolderBtn.disabled = true;
-  } else {
-    dom.debugLogPath.textContent = "Debug logs are enabled.";
-    dom.openDebugFolderBtn.disabled = false;
   }
 }

@@ -46,6 +46,9 @@ export interface Settings {
 
   // Debug
   debugLoggingEnabled: boolean;
+
+  // TruffleHog
+  trufflehogPath: string;
 }
 
 const DEFAULTS: Settings = {
@@ -69,6 +72,7 @@ const DEFAULTS: Settings = {
   enrichmentProvider: "none",
   enrichmentModel: "gpt-4o-mini",
   debugLoggingEnabled: false,
+  trufflehogPath: "",
 };
 
 export function getDefaultSettings(): Settings {
@@ -115,6 +119,8 @@ export async function loadSettings(): Promise<Settings> {
 
   settings.debugLoggingEnabled = (await read<boolean>("debugLoggingEnabled")) ?? settings.debugLoggingEnabled;
 
+  settings.trufflehogPath = (await read<string>("trufflehogPath")) ?? settings.trufflehogPath;
+
   return settings;
 }
 
@@ -128,6 +134,7 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await s.set("enrichmentProvider", settings.enrichmentProvider);
   await s.set("enrichmentModel", settings.enrichmentModel);
   await s.set("debugLoggingEnabled", settings.debugLoggingEnabled);
+  await s.set("trufflehogPath", settings.trufflehogPath);
   await s.save();
 }
 

@@ -1,5 +1,6 @@
 import { applyIcons, showToast } from "@goblin-systems/goblin-design-system";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import type { ScribeDom } from "./dom";
 import type { Settings } from "../settings";
 import type { EntryRow } from "../store";
@@ -7,36 +8,39 @@ import {
   cosineSimilarity,
   formatRelativeTime,
   parseEmbedding,
+  parseManualBadges,
   sourceIcon,
 } from "../store";
 import { getEmbedding } from "../embedding";
 import { debugLog } from "../logger";
 import { scan } from "../secret-detection/index";
 
-const ENTRIES_LIMIT = 200;
+const NOTES_LIMIT = 200;
 
-let allEntries: EntryRow[] = [];
+let allNotes: EntryRow[] = [];
 let currentRenderedCount = 0;
-let selectedEntryId: string | null = null;
+let selectedNoteId: string | null = null;
 let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 let getSettings: () => Settings;
 let dom: ScribeDom;
 
-export function initEntriesController(
+export function initNotesController(
   d: ScribeDom,
   settingsGetter: () => Settings
 ): void {
   dom = d;
   getSettings = settingsGetter;
+  setupBadgeRemoveDelegation();
 }
 
-export async function loadEntries(search?: string): Promise<void> {
+export async function loadNotes(search?: string): Promise<void> {
   try {
-    allEntries = await invoke<EntryRow[]>("db_list_entries", {
+    allNotes = await invoke<EntryRow[]>("db_list_entries", {
       search: search ?? null,
-      limit: ENTRIES_LIMIT,
+      limit: NOTES_LIMIT,
+      isNote: true,
     });
-    renderList(allEntries);
+    renderList(allNotes);
   } catch (err) {
     console.error("Failed to load entries:", err);
   }
@@ -54,7 +58,7 @@ export function handleSearchInput(query: string): void {
 
 async function runSearch(query: string): Promise<void> {
   if (query.length === 0) {
-    await loadEntries();
+    await loadNotes();
     return;
   }
 
@@ -78,7 +82,7 @@ async function runSearch(query: string): Promise<void> {
 
       let filtered = withEmbeddings;
       if (labelFilter) {
-        filtered = filtered.filter(e => e.label?.toLowerCase() === labelFilter);
+        filtered = filtered.filter((entry) => hasBadge(entry, labelFilter));
       }
 
       const scored = filtered
@@ -102,11 +106,12 @@ async function runSearch(query: string): Promise<void> {
   const keywordResults = await invoke<EntryRow[]>("db_list_entries", {
     search: cleanQuery || null,
     limit: 100,
+    isNote: true,
   });
 
   let filtered = keywordResults;
   if (labelFilter) {
-    filtered = filtered.filter(e => e.label?.toLowerCase() === labelFilter);
+    filtered = filtered.filter((entry) => hasBadge(entry, labelFilter));
   }
 
   renderList(filtered);
@@ -114,31 +119,39 @@ async function runSearch(query: string): Promise<void> {
 
 function renderList(entries: EntryRow[]): void {
   currentRenderedCount = entries.length;
-  dom.entriesList.replaceChildren();
+  dom.notesList.replaceChildren();
 
   const hasEntries = entries.length > 0;
-  dom.entriesEmpty.hidden = hasEntries;
-
-  const placeholder = document.getElementById("entry-detail-placeholder") as HTMLElement | null;
+  dom.notesEmpty.hidden = hasEntries;
 
   if (!hasEntries) {
-    if (placeholder) placeholder.hidden = true;
-    dom.entryDetail.hidden = true;
-    selectedEntryId = null;
-  } else if (selectedEntryId === null) {
-    if (placeholder) placeholder.hidden = false;
+    dom.noteDetailPlaceholder.hidden = true;
+    dom.noteDetail.hidden = true;
+    selectedNoteId = null;
+  } else if (selectedNoteId === null) {
+    dom.noteDetailPlaceholder.hidden = false;
   }
 
   for (const entry of entries) {
-    const item = buildEntryItem(entry);
-    dom.entriesList.appendChild(item);
+    const item = buildNoteItem(entry);
+    dom.notesList.appendChild(item);
   }
+
+  const selectedNote = selectedNoteId === null
+    ? null
+    : entries.find((entry) => entry.id === selectedNoteId) ?? null;
+  if (selectedNote) {
+    selectNote(selectedNote);
+  } else if (selectedNoteId !== null) {
+    clearSelection();
+  }
+
   applyIcons();
 }
 
-function buildEntryItem(entry: EntryRow): HTMLElement {
+function buildNoteItem(entry: EntryRow): HTMLElement {
   const item = document.createElement("div");
-  item.className = `entry-item${selectedEntryId === entry.id ? " is-selected" : ""}`;
+  item.className = `note-item${selectedNoteId === entry.id ? " is-selected" : ""}`;
   item.dataset.id = entry.id;
 
   let preview = entry.content.length > 140
@@ -148,9 +161,7 @@ function buildEntryItem(entry: EntryRow): HTMLElement {
   const isSecret = entry.secret_verdict && entry.secret_verdict !== "not_secret";
   const displayPreview = isSecret ? "•".repeat(Math.min(entry.content.length, 32)) : escapeHtml(preview);
 
-  const labelBadge = entry.label && entry.label !== "other" 
-    ? `<span class="badge badge-primary">${escapeHtml(entry.label)}</span>` 
-    : "";
+  const badgeHtml = renderBadgeHtml(entry);
 
   const secretBadge = entry.secret_verdict && entry.secret_verdict !== "not_secret"
     ? `<span class="badge" style="background:rgba(255,0,0,0.15);color:#ff6b6b;">${entry.secret_verdict === "secret" ? "secret" : "likely secret"}</span>`
@@ -159,52 +170,52 @@ function buildEntryItem(entry: EntryRow): HTMLElement {
   const appInfo = entry.source_app ? `<span class="hint">via ${escapeHtml(entry.source_app)}</span>` : "";
 
   item.innerHTML = `
-    <div class="entry-item-header">
-      <i data-lucide="${sourceIcon(entry.source)}" class="entry-source-icon"></i>
-      <span class="entry-time hint">${formatRelativeTime(entry.created_at)}</span>
+    <div class="note-item-header">
+      <i data-lucide="${sourceIcon(entry.source)}" class="note-source-icon"></i>
+      <span class="note-time hint">${formatRelativeTime(entry.created_at)}</span>
       ${appInfo}
-      ${labelBadge}
+      ${badgeHtml}
       ${secretBadge}
     </div>
-    <p class="entry-preview">${displayPreview}</p>
+    <p class="note-preview">${displayPreview}</p>
   `;
 
-  item.addEventListener("click", () => selectEntry(entry));
+  item.addEventListener("click", () => selectNote(entry));
   return item;
 }
 
-function selectEntry(entry: EntryRow): void {
-  selectedEntryId = entry.id;
+function selectNote(entry: EntryRow): void {
+  selectedNoteId = entry.id;
 
-  dom.entriesList.querySelectorAll(".entry-item").forEach((el) => {
+  dom.notesList.querySelectorAll(".note-item").forEach((el) => {
     el.classList.toggle("is-selected", (el as HTMLElement).dataset.id === entry.id);
   });
 
   const isSecret = entry.secret_verdict && entry.secret_verdict !== "not_secret";
   if (isSecret) {
-    dom.entryDetailContent.innerHTML = `
+    dom.noteDetailContent.innerHTML = `
       <div class="masked-content-row">
         <span class="masked-text">${"•".repeat(Math.min(entry.content.length, 40))}</span>
-        <button class="btn btn-sm" id="reveal-secret-btn">Reveal</button>
+        <button class="icon-btn icon-btn-sm" id="reveal-secret-btn" type="button" title="Reveal secret" aria-label="Reveal secret">
+          <i data-lucide="eye"></i>
+        </button>
       </div>
     `;
     const revealBtn = document.getElementById("reveal-secret-btn");
     if (revealBtn) {
       revealBtn.addEventListener("click", () => {
-        dom.entryDetailContent.textContent = entry.content;
+        dom.noteDetailContent.textContent = entry.content;
       });
     }
   } else {
-    dom.entryDetailContent.textContent = entry.content;
+    dom.noteDetailContent.textContent = entry.content;
   }
 
-  const labelInfo = entry.label 
-    ? `<span class="badge badge-primary">${escapeHtml(entry.label)}</span> <span class="hint">(${Math.round((entry.label_score || 0) * 100)}%)</span>` 
-    : "";
+  const labelInfo = renderDetailBadgeHtml(entry);
 
   const sourceAppInfo = entry.source_app ? `<span class="hint">via ${escapeHtml(entry.source_app)}</span>` : "";
 
-  dom.entryDetailMeta.innerHTML = `
+  dom.noteDetailMeta.innerHTML = `
     <div class="row gap-2" style="align-items:center; flex-wrap: wrap;">
       <span class="hint">${new Date(entry.created_at).toLocaleString()}</span>
       <span class="hint">·</span>
@@ -218,32 +229,31 @@ function selectEntry(entry: EntryRow): void {
   if (entry.secret_verdict && entry.secret_verdict !== "not_secret") {
     const verdictLabel = entry.secret_verdict === "secret" ? "🔴 Secret Detected" : "🟡 Likely Secret";
     const typeLabel = entry.secret_type || "unknown";
-    dom.entryDetailSecretActions.innerHTML = `
+    dom.noteDetailSecretActions.innerHTML = `
       <div class="secret-banner">
         <span style="font-weight:600;">${verdictLabel}</span>
         <span class="hint">(${escapeHtml(typeLabel)} · via ${escapeHtml(entry.secret_source || "unknown")})</span>
       </div>
     `;
-    dom.entryDetailSecretActions.hidden = false;
+    dom.noteDetailSecretActions.hidden = false;
   } else {
-    dom.entryDetailSecretActions.hidden = true;
+    dom.noteDetailSecretActions.hidden = true;
   }
 
-  dom.entryDetail.hidden = false;
-  document.getElementById("entry-detail-placeholder")!.hidden = true;
-  dom.entryDetailDelete.dataset.id = entry.id;
+  dom.noteDetail.hidden = false;
+  dom.noteDetailPlaceholder.hidden = true;
+  dom.noteDetailDelete.dataset.id = entry.id;
   applyIcons();
 }
 
 export function clearSelection(): void {
-  selectedEntryId = null;
-  dom.entryDetail.hidden = true;
-  const placeholder = document.getElementById("entry-detail-placeholder") as HTMLElement | null;
-  if (placeholder) placeholder.hidden = currentRenderedCount === 0;
-  dom.entriesEmpty.hidden = currentRenderedCount > 0;
+  selectedNoteId = null;
+  dom.noteDetail.hidden = true;
+  dom.noteDetailPlaceholder.hidden = currentRenderedCount === 0;
+  dom.notesEmpty.hidden = currentRenderedCount > 0;
 }
 
-export async function addEntry(
+export async function addNote(
   content: string,
   source: "manual" | "clipboard",
   html_content: string | null = null,
@@ -256,22 +266,25 @@ export async function addEntry(
     sourceApp,
     createdAt: Date.now(),
   });
+  await invoke("db_promote_to_note", { id });
 
-  await loadEntries(dom.searchInput.value.trim() || undefined);
-  void processEntryBackground(id, content);
+  await loadNotes(dom.searchInput.value.trim() || undefined);
+  await emit("entries-changed");
+  void processNoteBackground(id, content);
   return id;
 }
 
-export async function deleteSelectedEntry(): Promise<void> {
-  const id = dom.entryDetailDelete.dataset.id;
+export async function deleteSelectedNote(): Promise<void> {
+  const id = dom.noteDetailDelete.dataset.id;
   if (!id) return;
   await invoke("db_delete_entry", { id });
   clearSelection();
-  await loadEntries(dom.searchInput.value.trim() || undefined);
-  showToast("Entry deleted", "success", 1200);
+  await loadNotes(dom.searchInput.value.trim() || undefined);
+  await emit("entries-changed");
+  showToast("Note deleted", "success", 1200);
 }
 
-async function processEntryBackground(id: string, content: string): Promise<void> {
+export async function processNoteBackground(id: string, content: string): Promise<void> {
   // Run classification and secret detection in parallel
   const classifyPromise = invoke<{
     label: string;
@@ -322,7 +335,8 @@ async function processEntryBackground(id: string, content: string): Promise<void
       });
     }
 
-    await loadEntries(dom.searchInput.value.trim() || undefined);
+    await loadNotes(dom.searchInput.value.trim() || undefined);
+    await emit("entries-changed");
   } catch (err) {
     debugLog(`Background processing DB update failed for entry ${id}: ${err}`, "ERROR");
   }
@@ -334,4 +348,87 @@ function escapeHtml(str: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function hasBadge(entry: EntryRow, badge: string): boolean {
+  if (entry.label?.toLowerCase() === badge) return true;
+  return parseManualBadges(entry.manual_badges).some((b) => b.name === badge);
+}
+
+function badgeColorClass(color: string): string {
+  switch (color) {
+    case "blue": return "badge beta";
+    case "green": return "badge success";
+    case "red": return "badge error";
+    case "orange": return "badge warning";
+    default: return "badge badge-muted";
+  }
+}
+
+function renderBadgeHtml(entry: EntryRow): string {
+  const parts: string[] = [];
+
+  if (entry.label && entry.label !== "other") {
+    parts.push(`<span class="badge badge-primary">${escapeHtml(entry.label)}<button class="badge-remove-btn" data-entry-id="${entry.id}" data-badge-name="${escapeHtml(entry.label)}" data-badge-type="auto" type="button" aria-label="Remove badge">×</button></span>`);
+  }
+
+  for (const badge of parseManualBadges(entry.manual_badges)) {
+    parts.push(`<span class="${badgeColorClass(badge.color)}">${escapeHtml(badge.name)}<button class="badge-remove-btn" data-entry-id="${entry.id}" data-badge-name="${escapeHtml(badge.name)}" data-badge-type="manual" type="button" aria-label="Remove badge">×</button></span>`);
+  }
+
+  return parts.join(" ");
+}
+
+function renderDetailBadgeHtml(entry: EntryRow): string {
+  const parts: string[] = [];
+
+  if (entry.label && entry.label !== "other") {
+    parts.push(`<span class="badge badge-primary">${escapeHtml(entry.label)}<button class="badge-remove-btn" data-entry-id="${entry.id}" data-badge-name="${escapeHtml(entry.label)}" data-badge-type="auto" type="button" aria-label="Remove badge">×</button></span>`);
+    parts.push(`<span class="hint">(${Math.round((entry.label_score || 0) * 100)}%)</span>`);
+  }
+
+  for (const badge of parseManualBadges(entry.manual_badges)) {
+    parts.push(`<span class="${badgeColorClass(badge.color)}">${escapeHtml(badge.name)}<button class="badge-remove-btn" data-entry-id="${entry.id}" data-badge-name="${escapeHtml(badge.name)}" data-badge-type="manual" type="button" aria-label="Remove badge">×</button></span>`);
+  }
+
+  return parts.join(" ");
+}
+
+async function handleBadgeRemoveClick(btn: HTMLElement): Promise<void> {
+  const entryId = btn.dataset.entryId;
+  const badgeType = btn.dataset.badgeType;
+  const badgeName = btn.dataset.badgeName;
+  if (!entryId || !badgeType || !badgeName) return;
+
+  try {
+    if (badgeType === "auto") {
+      await invoke("db_clear_entry_label", { id: entryId });
+      showToast("Auto badge removed", "success", 1200);
+    } else {
+      await invoke("db_remove_manual_badge", { id: entryId, badge: badgeName });
+      showToast("Badge removed", "success", 1200);
+    }
+    await loadNotes(dom.searchInput.value.trim() || undefined);
+    await emit("entries-changed");
+  } catch {
+    showToast("Failed to remove badge", "error");
+  }
+}
+
+function setupBadgeRemoveDelegation(): void {
+  dom.notesList.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>(".badge-remove-btn");
+    if (btn) {
+      e.stopPropagation();
+      void handleBadgeRemoveClick(btn);
+    }
+  });
+
+  dom.noteDetailMeta.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>(".badge-remove-btn");
+    if (btn) {
+      e.stopPropagation();
+      void handleBadgeRemoveClick(btn);
+    }
+  });
 }
