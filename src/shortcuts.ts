@@ -63,13 +63,25 @@ const ACTUAL_MODIFIER_ORDER = ["Control", "Meta", "Alt", "Shift"] as const;
 
 const MAC_PLATFORM_NAMES = new Set(["mac", "macos", "darwin"]);
 const MODIFIER_ORDER = ["Primary", "Control", "Meta", "Alt", "Shift"] as const;
+
+function detectPlatform(): string {
+  if (typeof navigator === "undefined") return "windows";
+  return (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "windows";
+}
+
+function isMacPlatform(platform?: string): boolean {
+  const detected = platform ?? detectPlatform();
+  const lower = detected.toLowerCase();
+  return lower.startsWith("mac") || lower === "darwin";
+}
+
 const RESERVED_SHORTCUTS: ShortcutDefinition[] = [
   {
     id: "global.showOverlay",
     title: "Show overlay",
     description: "Open the clipboard overlay from anywhere.",
     scope: "global",
-    defaultBinding: "Control+Alt+V",
+    defaultBinding: isMacPlatform() ? "Meta+Shift+V" : "Control+Alt+V",
     editable: true,
   },
   {
@@ -553,18 +565,11 @@ function resolvePrimaryModifier(modifiers: Set<string>, platform?: string): Set<
   return resolved;
 }
 
-function isMacPlatform(platform?: string): boolean {
-  const detected = platform ?? detectPlatform();
-  return MAC_PLATFORM_NAMES.has(detected.toLowerCase());
-}
-
-function detectPlatform(): string {
-  if (typeof navigator === "undefined") return "windows";
-  return (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform ?? "windows";
-}
 
 function normalizeEventKey(key: string, code?: string): string | null {
   if (code === "Space") return "Space";
+  if (code && code.startsWith("Key")) return code.slice(3).toUpperCase();
+  if (code && code.startsWith("Digit")) return code.slice(5);
   return normalizeToken(key);
 }
 

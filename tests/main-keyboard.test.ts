@@ -13,7 +13,7 @@ describe("main window search shortcut", () => {
         shiftKey: false,
         isTargetEditable: false,
         isTargetActiveSearchInput: false,
-      }),
+      }, {}, "windows"),
     ).toBe(true);
   });
 
@@ -43,7 +43,7 @@ describe("main window search shortcut", () => {
         shiftKey: false,
         isTargetEditable: true,
         isTargetActiveSearchInput: false,
-      }),
+      }, {}, "windows"),
     ).toBe(false);
   });
 
@@ -58,7 +58,7 @@ describe("main window search shortcut", () => {
         shiftKey: false,
         isTargetEditable: true,
         isTargetActiveSearchInput: true,
-      }),
+      }, {}, "windows"),
     ).toBe(true);
   });
 
@@ -73,7 +73,7 @@ describe("main window search shortcut", () => {
         shiftKey: false,
         isTargetEditable: false,
         isTargetActiveSearchInput: false,
-      }),
+      }, {}, "windows"),
     ).toBe(false);
   });
 });

@@ -22,7 +22,7 @@ describe("shortcut catalog helpers", () => {
   });
 
   test("formats labels for runtime display", () => {
-    expect(getShortcutDisplayLabel("main.newItem", {})).toBe("Ctrl+N");
+    expect(getShortcutDisplayLabel("main.newItem", {}, "windows")).toBe("Ctrl+N");
     expect(formatShortcutBinding("Primary+Shift+N", "darwin")).toBe("Cmd+Shift+N");
   });
 
