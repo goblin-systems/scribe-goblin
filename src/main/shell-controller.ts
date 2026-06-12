@@ -4,11 +4,11 @@ import {
   closeModal,
   openModal,
   setTheme,
-  setupWindowControls,
   showToast,
   type UiTheme,
 } from "@goblin-systems/goblin-design-system";
 import { emit } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { load, type Store } from "@tauri-apps/plugin-store";
 import type { ScribeDom } from "./dom";
@@ -19,6 +19,7 @@ import {
   openDebugLogFolder,
 } from "../logger";
 import { saveSettings, type Settings } from "../settings";
+import { openImportModal } from "./import-controller";
 
 // ── Public interface ────────────────────────────────────────────────────────
 
@@ -26,12 +27,14 @@ export interface ShellControllerOptions {
   dom: ScribeDom;
   getSettings: () => Settings;
   setSettings: (s: Settings) => void;
+  onOpenQuickAdd?: () => void;
+  onOpenShortcutsSettings?: () => void;
 }
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 
 export function setupShell(options: ShellControllerOptions) {
-  const { dom, getSettings, setSettings } = options;
+  const { dom, getSettings, setSettings, onOpenQuickAdd, onOpenShortcutsSettings } = options;
 
   let uiStore: Store | null = null;
 
@@ -44,7 +47,7 @@ export function setupShell(options: ShellControllerOptions) {
 
   // ── Window controls ─────────────────────────────────────────────────────
   debugLog("setupShell: initialising window controls");
-  setupWindowControls();
+  setupDesktopWindowControls();
 
   // ── Icons ───────────────────────────────────────────────────────────────
   debugLog("setupShell: applying icons");
@@ -59,39 +62,24 @@ export function setupShell(options: ShellControllerOptions) {
     },
   });
 
-  // ── Sidebar view switching ──────────────────────────────────────────────
-  const sidebarBtns = document.querySelectorAll<HTMLElement>(".sidebar-nav-item");
-  debugLog(`setupShell: found ${sidebarBtns.length} sidebar nav items`);
-  sidebarBtns.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const view = btn.dataset["view"];
-      if (!view) return;
-      debugLog(`sidebar: switching to view "${view}"`);
-      switchView(view);
-      sidebarBtns.forEach((b) => b.classList.toggle("is-active", b === btn));
-    });
-  });
-
   // ── Modal reject buttons ────────────────────────────────────────────────
   bindModalRejectButtons(dom.captureSettingsModal, "capture-settings");
+  bindModalRejectButtons(dom.shortcutsSettingsModal, "shortcuts-settings");
   bindModalRejectButtons(dom.providersSettingsModal, "providers-settings");
   bindModalRejectButtons(dom.embeddingsSettingsModal, "embeddings-settings");
   bindModalRejectButtons(dom.enrichmentSettingsModal, "enrichment-settings");
+  bindModalRejectButtons(dom.rankingSettingsModal, "ranking-settings");
   bindModalRejectButtons(dom.trufflehogSettingsModal, "trufflehog-settings");
+  bindModalRejectButtons(dom.secretMaskerSettingsModal, "secret-masker-settings");
   bindModalRejectButtons(dom.debugSettingsModal, "debug-settings");
   bindModalRejectButtons(dom.aboutModal, "about");
   bindModalRejectButtons(dom.addBadgeModal, "add-badge");
+  bindModalRejectButtons(dom.importModal, "import");
+  bindModalRejectButtons(dom.createCollectionModal, "create-collection");
+  bindModalRejectButtons(dom.renameCollectionModal, "rename-collection");
+  bindModalRejectButtons(dom.deleteCollectionModal, "delete-collection");
 
   // ── Overlay buttons ─────────────────────────────────────────────────────
-  dom.showOverlayBtn.addEventListener("click", () => {
-    debugLog("overlay: triggered from sidebar button");
-    void showOverlay();
-  });
-  dom.showOverlayStatusBtn.addEventListener("click", () => {
-    debugLog("overlay: triggered from status bar button");
-    void showOverlay();
-  });
-
   debugLog("setupShell: done");
 
   // ── Nav handler ─────────────────────────────────────────────────────────
@@ -100,6 +88,7 @@ export function setupShell(options: ShellControllerOptions) {
     switch (id) {
       case "new-note":
         debugLog("nav: new note");
+        onOpenQuickAdd?.();
         dom.quickAddForm.hidden = false;
         dom.quickAddInput.focus();
         break;
@@ -112,6 +101,11 @@ export function setupShell(options: ShellControllerOptions) {
             debugLog(`nav: quit via invoke failed (${err}), falling back to window.close()`, "WARN");
             window.close();
           });
+        break;
+
+      case "open-import":
+        debugLog("nav: opening import modal");
+        openImportModal();
         break;
 
       case "toggle-sidebar":
@@ -142,6 +136,11 @@ export function setupShell(options: ShellControllerOptions) {
         openModal({ backdrop: dom.providersSettingsModal });
         break;
 
+      case "open-shortcuts-settings":
+        debugLog("nav: opening shortcuts settings modal");
+        onOpenShortcutsSettings?.();
+        break;
+
       case "open-embeddings-settings":
         debugLog("nav: opening embeddings settings modal");
         openModal({ backdrop: dom.embeddingsSettingsModal });
@@ -152,9 +151,19 @@ export function setupShell(options: ShellControllerOptions) {
         openModal({ backdrop: dom.enrichmentSettingsModal });
         break;
 
+      case "open-ranking-settings":
+        debugLog("nav: opening ranking settings modal");
+        openModal({ backdrop: dom.rankingSettingsModal });
+        break;
+
       case "open-trufflehog-settings":
         debugLog("nav: opening trufflehog settings modal");
         openModal({ backdrop: dom.trufflehogSettingsModal });
+        break;
+
+      case "open-secret-masker-settings":
+        debugLog("nav: opening secret masker settings modal");
+        openModal({ backdrop: dom.secretMaskerSettingsModal });
         break;
 
       case "open-debug-settings":
@@ -361,6 +370,96 @@ function bindModalRejectButtons(modal: HTMLElement, name: string) {
 }
 
 // ── Global augmentation ─────────────────────────────────────────────────────
+
+function setupDesktopWindowControls() {
+  const win = getCurrentWindow();
+  const minimizeBtn = document.getElementById("window-minimize-btn") as HTMLButtonElement | null;
+  const maximizeBtn = document.getElementById("window-maximize-btn") as HTMLButtonElement | null;
+  const closeBtn = document.getElementById("window-close-btn") as HTMLButtonElement | null;
+
+  minimizeBtn?.addEventListener("click", async () => {
+    try {
+      await win.minimize();
+    } catch (err) {
+      debugLog(`window-controls: minimize failed â€” ${err}`, "ERROR");
+      console.error("Failed to minimize window:", err);
+    }
+  });
+
+  closeBtn?.addEventListener("click", async () => {
+    try {
+      await win.hide();
+    } catch (err) {
+      debugLog(`window-controls: hide failed â€” ${err}`, "ERROR");
+      console.error("Failed to hide window to tray:", err);
+      showToast("Could not minimize window to tray.", "error");
+    }
+  });
+
+  if (!maximizeBtn) return;
+
+  maximizeBtn.addEventListener("click", async () => {
+    try {
+      const maximized = await win.isMaximized();
+      if (maximized) {
+        await win.unmaximize();
+      } else {
+        await win.maximize();
+      }
+      syncMaximizeButtonIcon(maximizeBtn, !maximized);
+    } catch (err) {
+      debugLog(`window-controls: maximize toggle failed â€” ${err}`, "ERROR");
+      console.error("Failed to toggle maximize:", err);
+    }
+  });
+
+  win.isMaximized()
+    .then((maximized) => syncMaximizeButtonIcon(maximizeBtn, maximized))
+    .catch(() => {});
+  win
+    .onResized(async () => {
+      try {
+        const maximized = await win.isMaximized();
+        syncMaximizeButtonIcon(maximizeBtn, maximized);
+      } catch {
+        // Ignore resize sync failures.
+      }
+    })
+    .catch(() => {});
+}
+
+function syncMaximizeButtonIcon(
+  button: HTMLButtonElement,
+  isMaximized: boolean,
+) {
+  button.dataset["maximized"] = String(isMaximized);
+  const svg = button.querySelector("svg");
+  if (!svg) return;
+
+  const iconParts = isMaximized
+    ? [
+        ["polyline", "points", "4 14 10 14 10 20"],
+        ["polyline", "points", "20 10 14 10 14 4"],
+        ["line", "x1,y1,x2,y2", "10,20,3,13"],
+        ["line", "x1,y1,x2,y2", "21,3,14,10"],
+      ]
+    : [
+        ["polyline", "points", "15 3 21 3 21 9"],
+        ["polyline", "points", "9 21 3 21 3 15"],
+        ["line", "x1,y1,x2,y2", "21,3,14,10"],
+        ["line", "x1,y1,x2,y2", "3,21,10,14"],
+      ];
+
+  svg.innerHTML = "";
+  const ns = "http://www.w3.org/2000/svg";
+  for (const [tag, attrNames, attrValues] of iconParts) {
+    const el = document.createElementNS(ns, tag);
+    const names = attrNames.split(",");
+    const values = attrValues.split(",");
+    names.forEach((name, index) => el.setAttribute(name, values[index] ?? ""));
+    svg.appendChild(el);
+  }
+}
 
 declare global {
   interface Window {

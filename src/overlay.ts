@@ -1,24 +1,82 @@
-import { applyIcons, bindContextMenu, type ContextMenuHandle } from "@goblin-systems/goblin-design-system";
+import {
+  applyIcons,
+  bindContextMenu,
+  setTheme,
+  type ContextMenuHandle,
+  type ContextMenuItem,
+} from "@goblin-systems/goblin-design-system";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
+import { load, type Store } from "@tauri-apps/plugin-store";
+import {
+  applyModifiedPasteTransform,
+  MODIFIED_PASTE_OPTIONS,
+  type ModifiedPasteTransformId,
+} from "./overlay-modified-paste";
+import { getOverlayKeydownAction, getOverlayKeyupAction } from "./overlay-keyboard";
+import { sortPinnedOverlayEntries } from "./overlay-pins";
+import { resolveStoredUiTheme } from "./overlay-theme";
 import type { EntryRow } from "./store";
-import { parseManualBadges } from "./store";
+import { formatBytes, formatImportOrigin, isAttachmentOnlyEntry, overlayFooterHintText, parseManualBadges, sourceLabel } from "./store";
+import { loadSettings, type Settings } from "./settings";
+import { searchEntries } from "./main/search-controller";
+import { getShortcutDisplayLabel } from "./shortcuts";
 
-const BADGE_INLINE_COLORS: Record<string, { bg: string; border: string; color: string }> = {
-  default: { bg: "rgba(255,255,255,0.06)", border: "rgba(255,255,255,0.12)", color: "#a9b1d6" },
-  blue: { bg: "rgba(122,162,247,0.15)", border: "rgba(122,162,247,0.3)", color: "#7aa2f7" },
-  green: { bg: "rgba(158,206,106,0.15)", border: "rgba(158,206,106,0.3)", color: "#9ece6a" },
-  red: { bg: "rgba(247,118,142,0.15)", border: "rgba(247,118,142,0.3)", color: "#f7768e" },
-  orange: { bg: "rgba(224,175,104,0.15)", border: "rgba(224,175,104,0.3)", color: "#e0af68" },
+const BADGE_TONE_CLASS_BY_COLOR: Record<string, string> = {
+  default: "overlay-badge--default",
+  blue: "overlay-badge--blue",
+  green: "overlay-badge--green",
+  red: "overlay-badge--red",
+  orange: "overlay-badge--orange",
 };
 
 let entries: EntryRow[] = [];
 let selectedIndex = 0;
 let contextMenuHandle: ContextMenuHandle | null = null;
 let contextEntryId: string | null = null;
+let currentSettings: Settings | null = null;
+let contextMenuView: "root" | "modified-paste" = "root";
+let lastContextMenuPosition: { x: number; y: number } | null = null;
+let uiStore: Store | null = null;
 const searchInput = document.getElementById("overlay-search") as HTMLInputElement;
 const resultsList = document.getElementById("results-list") as HTMLDivElement;
+const footerHint = document.getElementById("overlay-footer-hint") as HTMLSpanElement;
+const footerPasteKey = document.getElementById("overlay-footer-paste-key") as HTMLElement;
+const footerDeleteKey = document.getElementById("overlay-footer-delete-key") as HTMLElement;
+const footerCloseKey = document.getElementById("overlay-footer-close-key") as HTMLElement;
+
+async function getUiStore(): Promise<Store> {
+  if (!uiStore) {
+    uiStore = await load("settings.json", { autoSave: true, defaults: {} });
+  }
+  return uiStore;
+}
+
+async function applyOverlayTheme(): Promise<void> {
+  const store = await getUiStore();
+  const theme = resolveStoredUiTheme(await store.get<string>("uiTheme"));
+  setTheme(theme);
+}
+
+function destroyContextMenuHandle(): void {
+  contextMenuHandle?.close();
+  contextMenuHandle?.destroy();
+  contextMenuHandle = null;
+}
+
+function resetOverlayTransientState(): void {
+  destroyContextMenuHandle();
+  contextEntryId = null;
+  contextMenuView = "root";
+  lastContextMenuPosition = null;
+  document.body.classList.remove("alt-pressed");
+}
+
+async function closeOverlay(): Promise<void> {
+  resetOverlayTransientState();
+  await getCurrentWindow().hide();
+}
 
 function currentSearch(): string {
   return searchInput.value.trim();
@@ -36,78 +94,204 @@ function getContextEntry(): EntryRow | null {
 function setupContextMenu(): void {
   const entry = getContextEntry();
   const isSecret = Boolean(entry?.secret_verdict && entry.secret_verdict !== "not_secret");
+  const isAttachmentOnly = entry ? isAttachmentOnlyEntry(entry) : true;
+  const items: ContextMenuItem[] =
+    contextMenuView === "modified-paste"
+      ? [
+          {
+            id: "modified-paste-back",
+            label: "Back",
+            icon: "arrow-left",
+            onSelect: () => {
+              reopenContextMenu("root");
+            },
+          },
+          { divider: true },
+          ...MODIFIED_PASTE_OPTIONS.map((option) => ({
+            id: `modified-paste-${option.id}`,
+            label: option.label,
+            disabled: isAttachmentOnly,
+            onSelect: async () => {
+              await performModifiedPaste(option.id);
+            },
+          })),
+        ]
+      : [
+          {
+            id: "modified-paste",
+            label: "Modified paste",
+            icon: "type",
+            disabled: isAttachmentOnly,
+            onSelect: () => {
+              reopenContextMenu("modified-paste");
+            },
+          },
+          { divider: true },
+          {
+            id: entry?.pinned ? "unpin-clip" : "pin-clip",
+            label: entry?.pinned ? "Unpin clip" : "Pin clip",
+            icon: entry?.pinned ? "pin-off" : "pin",
+            onSelect: async () => {
+              if (!contextEntryId) return;
+              await invoke("db_set_entry_pinned", {
+                id: contextEntryId,
+                pinned: !entry?.pinned,
+              });
+              await refreshEntries();
+              await emit("entries-changed");
+            },
+          },
+          {
+            id: "save-note",
+            label: "Save as Note",
+            icon: "bookmark-plus",
+            onSelect: async () => {
+              if (!contextEntryId) return;
+              await invoke("db_promote_to_note", { id: contextEntryId });
+              await refreshEntries();
+              await emit("entries-changed");
+            },
+          },
+          {
+            id: "add-badge",
+            label: "Add Badge...",
+            icon: "plus",
+            onSelect: async () => {
+              if (!contextEntryId) return;
+              const raw = window.prompt("Badge name(s), comma-separated");
+              if (raw === null) return;
+              const badges = raw.split(",").map((s) => s.trim()).filter(Boolean);
+              if (badges.length === 0) return;
+              for (const badge of badges) {
+                await invoke("db_add_manual_badge", { id: contextEntryId, badge, color: "default" });
+              }
+              await refreshEntries();
+              await emit("entries-changed");
+            },
+          },
+          {
+            id: isSecret ? "mark-not-secret" : "mark-secret",
+            label: isSecret ? "Mark Not Secret" : "Mark as Secret",
+            icon: isSecret ? "shield-check" : "shield-alert",
+            onSelect: async () => {
+              if (!contextEntryId) return;
+              await invoke("db_update_entry_secret", {
+                id: contextEntryId,
+                secretVerdict: isSecret ? "not_secret" : "likely_secret",
+                secretType: "unknown",
+                secretSource: "manual",
+              });
+              await refreshEntries();
+              await emit("entries-changed");
+            },
+          },
+          { divider: true },
+          {
+            id: "delete",
+            label: "Delete",
+            icon: "trash-2",
+            onSelect: async () => {
+              if (!contextEntryId) return;
+              await invoke("db_delete_entry", { id: contextEntryId });
+              await refreshEntries();
+              await emit("entries-changed");
+            },
+          },
+        ];
 
-  contextMenuHandle?.destroy();
+  destroyContextMenuHandle();
   contextMenuHandle = bindContextMenu({
     target: resultsList,
-    items: [
-      {
-        id: "save-note",
-        label: "Save as Note",
-        icon: "bookmark-plus",
-        onSelect: async () => {
-          if (!contextEntryId) return;
-          await invoke("db_promote_to_note", { id: contextEntryId });
-          await refreshEntries();
-          await emit("entries-changed");
-        },
-      },
-      {
-        id: "add-badge",
-        label: "Add Badge...",
-        icon: "plus",
-        onSelect: async () => {
-          if (!contextEntryId) return;
-          const raw = window.prompt("Badge name(s), comma-separated");
-          if (raw === null) return;
-          const badges = raw.split(",").map((s) => s.trim()).filter(Boolean);
-          if (badges.length === 0) return;
-          for (const badge of badges) {
-            await invoke("db_add_manual_badge", { id: contextEntryId, badge, color: "default" });
-          }
-          await refreshEntries();
-          await emit("entries-changed");
-        },
-      },
-      {
-        id: isSecret ? "mark-not-secret" : "mark-secret",
-        label: isSecret ? "Mark Not Secret" : "Mark as Secret",
-        icon: isSecret ? "shield-check" : "shield-alert",
-        onSelect: async () => {
-          if (!contextEntryId) return;
-          await invoke("db_update_entry_secret", {
-            id: contextEntryId,
-            secretVerdict: isSecret ? "not_secret" : "likely_secret",
-            secretType: "unknown",
-            secretSource: "manual",
-          });
-          await refreshEntries();
-          await emit("entries-changed");
-        },
-      },
-      { divider: true },
-      {
-        id: "delete",
-        label: "Delete",
-        icon: "trash-2",
-        onSelect: async () => {
-          if (!contextEntryId) return;
-          await invoke("db_delete_entry", { id: contextEntryId });
-          await refreshEntries();
-          await emit("entries-changed");
-        },
-      },
-    ],
+    items,
   });
+}
+
+function openContextMenuAt(x: number, y: number): void {
+  lastContextMenuPosition = { x, y };
+  contextMenuHandle?.open(x, y);
+  window.requestAnimationFrame(clampOpenContextMenuToViewport);
+}
+
+function isContextMenuOpen(): boolean {
+  return document.querySelector(".context-menu.is-open") !== null;
+}
+
+function getSelectedContextMenuPosition(): { x: number; y: number } {
+  const selectedItem = resultsList.querySelector<HTMLElement>(".result-item.is-selected");
+  if (selectedItem) {
+    const rect = selectedItem.getBoundingClientRect();
+    return {
+      x: Math.max(8, Math.round(rect.right - 8)),
+      y: Math.max(8, Math.round(rect.top + Math.min(rect.height / 2, 24))),
+    };
+  }
+
+  const rect = resultsList.getBoundingClientRect();
+  return {
+    x: Math.max(8, Math.round(rect.left + rect.width / 2)),
+    y: Math.max(8, Math.round(rect.top + Math.min(rect.height / 2, 24))),
+  };
+}
+
+function clampOpenContextMenuToViewport(): void {
+  const menu = document.querySelector<HTMLElement>(".context-menu.is-open");
+  if (!menu) return;
+
+  const rect = menu.getBoundingClientRect();
+  const margin = 8;
+  const maxLeft = window.innerWidth - rect.width - margin;
+  const maxTop = window.innerHeight - rect.height - margin;
+  const nextLeft = Math.min(Math.max(rect.left, margin), Math.max(margin, maxLeft));
+  const nextTop = Math.min(Math.max(rect.top, margin), Math.max(margin, maxTop));
+
+  menu.style.left = `${nextLeft}px`;
+  menu.style.top = `${nextTop}px`;
+}
+
+function reopenContextMenu(view: "root" | "modified-paste"): void {
+  contextMenuView = view;
+  setupContextMenu();
+  const position = lastContextMenuPosition;
+  if (!position) return;
+  window.setTimeout(() => {
+    openContextMenuAt(position.x, position.y);
+  }, 0);
+}
+
+function openModifiedPasteMenuForSelection(): void {
+  const entry = entries[selectedIndex];
+  if (!entry) return;
+
+  contextEntryId = entry.id;
+  contextMenuView = "modified-paste";
+  setupContextMenu();
+
+  const position = getSelectedContextMenuPosition();
+  openContextMenuAt(position.x, position.y);
 }
 
 async function loadEntries(search = "") {
   try {
-    const result = await invoke<EntryRow[]>("db_list_entries", { 
-      search: search || null, 
-      limit: 50
-    });
-    entries = result;
+    currentSettings = await loadSettings();
+    updateFooterShortcutLabels();
+    const trimmedSearch = search.trim();
+    if (trimmedSearch) {
+      const results = await searchEntries(
+        {
+          query: trimmedSearch,
+          filters: { is_note: false },
+          limit: 50,
+        },
+        currentSettings,
+      );
+      entries = sortPinnedOverlayEntries(results.map((result) => result.entry));
+    } else {
+      const result = await invoke<EntryRow[]>("db_list_entries", {
+        search: null,
+        limit: 50,
+      });
+      entries = sortPinnedOverlayEntries(result.filter((entry) => entry.is_note === false));
+    }
     if (selectedIndex >= entries.length) {
       selectedIndex = Math.max(0, entries.length - 1);
     }
@@ -119,44 +303,61 @@ async function loadEntries(search = "") {
 
 function renderEntries() {
   resultsList.innerHTML = "";
+  updateFooterHint();
   if (entries.length === 0) {
-    resultsList.innerHTML = '<div style="padding: 20px; text-align: center; color: #565f89;">No history found</div>';
+    resultsList.innerHTML = '<div class="overlay-empty-state">No history found</div>';
     return;
   }
 
   entries.forEach((entry, index) => {
     const item = document.createElement("div");
     const isSecret = entry.secret_verdict && entry.secret_verdict !== "not_secret";
-    item.className = `result-item ${index === selectedIndex ? "is-selected" : ""} ${isSecret ? "is-secret" : ""}`;
+    const isAttachmentOnly = isAttachmentOnlyEntry(entry);
+    item.className = `result-item ${index === selectedIndex ? "is-selected" : ""} ${isSecret ? "is-secret" : ""} ${entry.pinned ? "is-pinned" : ""}`;
     
     const content = document.createElement("div");
     content.className = "result-content";
     content.innerHTML = `
-      <span class="unmasked-content">${escapeHtml(entry.content)}</span>
+      <span class="unmasked-content">${escapeHtml(entry.import_name?.trim() || entry.content)}</span>
       <span class="masked-content">${"•".repeat(Math.min(entry.content.length, 32))}</span>
     `;
     
     const meta = document.createElement("div");
     meta.className = "result-meta";
     const date = new Date(entry.created_at).toLocaleString();
+    const metaLabel = buildOverlayMetaLabel(entry, isAttachmentOnly);
     
-    const badgeHtml = renderBadgeHtml(entry);
+    const pinHtml = entry.pinned
+      ? `<span class="overlay-badge overlay-badge--pinned">Pinned</span>`
+      : "";
+    const badgeHtml = `${pinHtml}${renderBadgeHtml(entry)}`;
 
-    meta.innerHTML = `<div>${badgeHtml}</div><span>${date}</span>`;
+    meta.innerHTML = `<div class="result-meta-badges">${badgeHtml}</div><span>${escapeHtml(metaLabel)} · ${escapeHtml(date)}</span>`;
     
     item.appendChild(content);
     item.appendChild(meta);
+
+    if (isAttachmentOnly) {
+      const attachmentHint = document.createElement("div");
+      attachmentHint.className = "result-attachment-hint";
+      attachmentHint.textContent = "Attachment-only import — paste disabled";
+      item.appendChild(attachmentHint);
+    }
     
     item.onclick = () => {
       selectedIndex = index;
       void performPaste();
     };
 
-    item.addEventListener("contextmenu", () => {
+    item.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       selectedIndex = index;
       contextEntryId = entry.id;
+      contextMenuView = "root";
       setupContextMenu();
       renderEntries();
+      openContextMenuAt(event.clientX, event.clientY);
     });
     
     resultsList.appendChild(item);
@@ -175,23 +376,51 @@ function escapeHtml(str: string): string {
   return p.innerHTML;
 }
 
-async function performPaste(stripFormatting = false) {
+async function performPaste() {
   const entry = entries[selectedIndex];
   if (!entry) return;
+  if (isAttachmentOnlyEntry(entry)) {
+    updateFooterHint();
+    return;
+  }
 
-  const appWindow = getCurrentWindow();
-  await appWindow.hide();
-  
-  const html = stripFormatting ? null : entry.html_content;
+  await closeOverlay();
 
   setTimeout(async () => {
     try {
-      await invoke("simulate_paste", { 
+      await invoke("simulate_paste", {
         text: entry.content,
-        html: html
+        html: entry.html_content,
       });
     } catch (err) {
       console.error("Paste failed:", err);
+    }
+  }, 100);
+}
+
+async function performModifiedPaste(transform: ModifiedPasteTransformId): Promise<void> {
+  const entry = getContextEntry() ?? entries[selectedIndex];
+  if (!entry || isAttachmentOnlyEntry(entry)) {
+    updateFooterHint();
+    return;
+  }
+
+  const entryIndex = entries.findIndex((candidate) => candidate.id === entry.id);
+  if (entryIndex >= 0) {
+    selectedIndex = entryIndex;
+  }
+
+  const transformedText = applyModifiedPasteTransform(entry.content, transform);
+  await closeOverlay();
+
+  setTimeout(async () => {
+    try {
+      await invoke("simulate_paste", {
+        text: transformedText,
+        html: null,
+      });
+    } catch (err) {
+      console.error("Modified paste failed:", err);
     }
   }, 100);
 }
@@ -213,16 +442,45 @@ async function deleteSelectedEntry() {
   }
 }
 
+function updateFooterHint(): void {
+  footerHint.textContent = overlayFooterHintText(entries[selectedIndex]);
+}
+
+function updateFooterShortcutLabels(): void {
+  const overrides = currentSettings?.shortcutOverrides ?? {};
+  footerPasteKey.textContent = getShortcutDisplayLabel("overlay.paste", overrides);
+  footerDeleteKey.textContent = getShortcutDisplayLabel("overlay.delete", overrides);
+  footerCloseKey.textContent = getShortcutDisplayLabel("overlay.close", overrides);
+}
+
+function buildOverlayMetaLabel(entry: EntryRow, isAttachmentOnly: boolean): string {
+  const parts: string[] = [sourceLabel(entry.source)];
+
+  if (entry.source === "import") {
+    const origin = formatImportOrigin(entry.import_origin);
+    if (origin) parts.push(origin);
+    if (entry.content_type) parts.push(entry.content_type);
+    const size = formatBytes(entry.attachment_size_bytes);
+    if (size) parts.push(size);
+  }
+
+  if (isAttachmentOnly) {
+    parts.push("attachment");
+  }
+
+  return parts.join(" · ");
+}
+
 function renderBadgeHtml(entry: EntryRow): string {
   const parts: string[] = [];
 
   if (entry.label && entry.label !== "other") {
-    parts.push(`<span style="background:rgba(122,162,247,0.1);padding:1px 4px;border-radius:3px;margin-right:4px;white-space:nowrap;display:inline-flex;align-items:center;">${escapeHtml(entry.label)}<button style="all:unset;cursor:pointer;margin-left:4px;opacity:0.6;font-size:12px;line-height:1;" data-entry-id="${entry.id}" data-badge-name="${escapeHtml(entry.label)}" data-badge-type="auto" type="button" aria-label="Remove badge" class="badge-remove-btn" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">×</button></span>`);
+    parts.push(`<span class="overlay-badge overlay-badge--auto">${escapeHtml(entry.label)}<button data-entry-id="${entry.id}" data-badge-name="${escapeHtml(entry.label)}" data-badge-type="auto" type="button" aria-label="Remove badge" class="badge-remove-btn">×</button></span>`);
   }
 
   for (const badge of parseManualBadges(entry.manual_badges)) {
-    const c = BADGE_INLINE_COLORS[badge.color] || BADGE_INLINE_COLORS.default;
-    parts.push(`<span style="background:${c.bg};border:1px solid ${c.border};color:${c.color};padding:1px 4px;border-radius:3px;margin-right:4px;white-space:nowrap;display:inline-flex;align-items:center;">${escapeHtml(badge.name)}<button style="all:unset;cursor:pointer;margin-left:4px;opacity:0.6;font-size:12px;line-height:1;" data-entry-id="${entry.id}" data-badge-name="${escapeHtml(badge.name)}" data-badge-type="manual" type="button" aria-label="Remove badge" class="badge-remove-btn" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'">×</button></span>`);
+    const toneClass = BADGE_TONE_CLASS_BY_COLOR[badge.color] || BADGE_TONE_CLASS_BY_COLOR.default;
+    parts.push(`<span class="overlay-badge ${toneClass}">${escapeHtml(badge.name)}<button data-entry-id="${entry.id}" data-badge-name="${escapeHtml(badge.name)}" data-badge-type="manual" type="button" aria-label="Remove badge" class="badge-remove-btn">×</button></span>`);
   }
 
   return parts.join("");
@@ -261,55 +519,76 @@ searchInput.oninput = () => {
 };
 
 window.onkeydown = (e) => {
-  if (e.key === "Alt") {
-    e.preventDefault();
-    if (!document.body.classList.contains("alt-pressed")) {
-      document.body.classList.add("alt-pressed");
-    }
-    return;
-  }
-
-  if (e.key === "ArrowDown") {
-    e.preventDefault();
-    if (entries.length > 0) {
+  switch (getOverlayKeydownAction({
+    key: e.key,
+    code: e.code,
+    ctrlKey: e.ctrlKey,
+    metaKey: e.metaKey,
+    altKey: e.altKey,
+    shiftKey: e.shiftKey,
+    isContextMenuOpen: isContextMenuOpen(),
+  })) {
+    case "reveal-on":
+      e.preventDefault();
+      if (!document.body.classList.contains("alt-pressed")) {
+        document.body.classList.add("alt-pressed");
+      }
+      return;
+    case "move-down":
+      e.preventDefault();
+      if (entries.length > 0) {
         selectedIndex = (selectedIndex + 1) % entries.length;
         renderEntries();
-    }
-  } else if (e.key === "ArrowUp") {
-    e.preventDefault();
-    if (entries.length > 0) {
+      }
+      return;
+    case "move-up":
+      e.preventDefault();
+      if (entries.length > 0) {
         selectedIndex = (selectedIndex - 1 + entries.length) % entries.length;
         renderEntries();
-    }
-  } else if (e.key === "Enter") {
-    e.preventDefault();
-    void performPaste(e.ctrlKey);
-  } else if (e.key === "Delete") {
-    e.preventDefault();
-    void deleteSelectedEntry();
-  } else if (e.key === "Escape") {
-    void getCurrentWindow().hide();
+      }
+      return;
+    case "paste":
+      e.preventDefault();
+      void performPaste();
+      return;
+    case "open-modified-paste":
+      e.preventDefault();
+      openModifiedPasteMenuForSelection();
+      return;
+    case "delete":
+      e.preventDefault();
+      void deleteSelectedEntry();
+      return;
+    case "close":
+      void closeOverlay();
+      return;
+    case "none":
+      return;
   }
 };
 
 window.onkeyup = (e) => {
-  if (e.key === "Alt") {
+  if (getOverlayKeyupAction(e.key) === "reveal-off") {
     e.preventDefault();
     document.body.classList.remove("alt-pressed");
   }
 };
 
 // Listen for show-overlay event
-listen("show-overlay", async (event: any) => {
-  const { x, y } = event.payload;
+listen("show-overlay", async (event: { payload?: { x?: number; y?: number } }) => {
+  const { x, y } = event.payload ?? {};
   const appWindow = getCurrentWindow();
+  await applyOverlayTheme();
   
-  // Center roughly on cursor
-  await appWindow.setPosition(new LogicalPosition(x - 200, y - 20));
+  // Center roughly on cursor when coordinates are available
+  if (typeof x === "number" && typeof y === "number") {
+    await appWindow.setPosition(new LogicalPosition(x - 200, y - 20));
+  }
   await appWindow.show();
   await appWindow.setFocus();
-  
-  document.body.classList.remove("alt-pressed");
+
+  resetOverlayTransientState();
   searchInput.value = "";
   selectedIndex = 0;
   await loadEntries();
@@ -317,16 +596,23 @@ listen("show-overlay", async (event: any) => {
 });
 
 listen("entries-changed", async () => {
+  currentSettings = await loadSettings();
+  updateFooterShortcutLabels();
   await refreshEntries();
 });
 
 // Auto-focus search on start
 window.onload = () => {
-  searchInput.focus();
-  void loadEntries();
+  void (async () => {
+    await applyOverlayTheme();
+    searchInput.focus();
+    currentSettings = await loadSettings();
+    updateFooterShortcutLabels();
+    await loadEntries();
+  })();
 };
 
 // Hide when focus is lost
 window.onblur = () => {
-  void getCurrentWindow().hide();
+  void closeOverlay();
 };

@@ -1,7 +1,10 @@
 import { load, Store } from "@tauri-apps/plugin-store";
+import { sanitizeShortcutOverrides, type ShortcutOverrides } from "./shortcuts";
 
 export type EmbeddingProvider = "none" | "openai" | "gemini" | "ollama" | "local";
-export type EnrichmentProvider = "none" | "openai" | "gemini";
+export type EnrichmentProvider = "none" | "openai" | "gemini" | "local-qwen";
+
+export const LOCAL_QWEN_MODEL_ID = "qwen2.5-0.5b-instruct";
 
 export interface ProviderModelCache {
   apiKeyFingerprint: string;
@@ -24,6 +27,18 @@ export interface OllamaProviderSettings {
   baseUrl: string;
 }
 
+export interface RankingSettings {
+  shortKeywordWeight: number;
+  shortSemanticWeight: number;
+  mediumKeywordWeight: number;
+  mediumSemanticWeight: number;
+  longKeywordWeight: number;
+  longSemanticWeight: number;
+  semanticRelevanceThreshold: number;
+  recencyBoostMax: number;
+  rrfK: number;
+}
+
 export interface Settings {
   // Capture
   clipboardMonitoring: boolean;
@@ -39,8 +54,12 @@ export interface Settings {
   embeddingProvider: EmbeddingProvider;
   embeddingModel: string;
 
-  // AI enrichment (summary + tags)
-  enrichmentEnabled: boolean;
+  // Ranking
+  ranking: RankingSettings;
+
+  // AI enrichment
+  enrichmentSummaryEnabled: boolean;
+  enrichmentTaggingEnabled: boolean;
   enrichmentProvider: EnrichmentProvider;
   enrichmentModel: string;
 
@@ -49,6 +68,12 @@ export interface Settings {
 
   // TruffleHog
   trufflehogPath: string;
+
+  // Secret masker ML model
+  secretMaskerEnabled: boolean;
+
+  // Editable shortcut overrides
+  shortcutOverrides: ShortcutOverrides;
 }
 
 const DEFAULTS: Settings = {
@@ -68,15 +93,33 @@ const DEFAULTS: Settings = {
   },
   embeddingProvider: "none",
   embeddingModel: "text-embedding-3-small",
-  enrichmentEnabled: false,
-  enrichmentProvider: "none",
-  enrichmentModel: "gpt-4o-mini",
+  ranking: {
+    shortKeywordWeight: 1.35,
+    shortSemanticWeight: 2,
+    mediumKeywordWeight: 1.15,
+    mediumSemanticWeight: 2.85,
+    longKeywordWeight: 1.0,
+    longSemanticWeight: 2,
+    semanticRelevanceThreshold: 0.385,
+    recencyBoostMax: 0.02,
+    rrfK: 10,
+  },
+  enrichmentSummaryEnabled: false,
+  enrichmentTaggingEnabled: true,
+  enrichmentProvider: "local-qwen",
+  enrichmentModel: LOCAL_QWEN_MODEL_ID,
   debugLoggingEnabled: false,
   trufflehogPath: "",
+  secretMaskerEnabled: true,
+  shortcutOverrides: {},
 };
 
 export function getDefaultSettings(): Settings {
   return JSON.parse(JSON.stringify(DEFAULTS));
+}
+
+export function getDefaultRankingSettings(): RankingSettings {
+  return JSON.parse(JSON.stringify(DEFAULTS.ranking));
 }
 
 let store: Store | null = null;
@@ -112,14 +155,32 @@ export async function loadSettings(): Promise<Settings> {
 
   settings.embeddingProvider = (await read<EmbeddingProvider>("embeddingProvider")) ?? settings.embeddingProvider;
   settings.embeddingModel = (await read<string>("embeddingModel")) ?? (await read<string>("embeddingOpenAiModel")) ?? settings.embeddingModel;
+  const ranking = await read<Partial<RankingSettings>>("ranking");
+  if (ranking) {
+    settings.ranking = { ...settings.ranking, ...ranking };
+  }
   
-  settings.enrichmentEnabled = (await read<boolean>("enrichmentEnabled")) ?? settings.enrichmentEnabled;
+  const legacyEnrichmentEnabled = await read<boolean>("enrichmentEnabled");
+  settings.enrichmentSummaryEnabled =
+    (await read<boolean>("enrichmentSummaryEnabled")) ??
+    legacyEnrichmentEnabled ??
+    settings.enrichmentSummaryEnabled;
+  settings.enrichmentTaggingEnabled =
+    (await read<boolean>("enrichmentTaggingEnabled")) ??
+    legacyEnrichmentEnabled ??
+    settings.enrichmentTaggingEnabled;
   settings.enrichmentProvider = (await read<EnrichmentProvider>("enrichmentProvider")) ?? settings.enrichmentProvider;
   settings.enrichmentModel = (await read<string>("enrichmentModel")) ?? settings.enrichmentModel;
 
   settings.debugLoggingEnabled = (await read<boolean>("debugLoggingEnabled")) ?? settings.debugLoggingEnabled;
 
   settings.trufflehogPath = (await read<string>("trufflehogPath")) ?? settings.trufflehogPath;
+
+  settings.secretMaskerEnabled = (await read<boolean>("secretMaskerEnabled")) ?? settings.secretMaskerEnabled;
+
+  settings.shortcutOverrides = sanitizeShortcutOverrides(
+    await read<Record<string, unknown>>("shortcutOverrides"),
+  );
 
   return settings;
 }
@@ -130,11 +191,16 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await s.set("providers", settings.providers);
   await s.set("embeddingProvider", settings.embeddingProvider);
   await s.set("embeddingModel", settings.embeddingModel);
-  await s.set("enrichmentEnabled", settings.enrichmentEnabled);
+  await s.set("ranking", settings.ranking);
+  await s.set("enrichmentEnabled", settings.enrichmentSummaryEnabled || settings.enrichmentTaggingEnabled);
+  await s.set("enrichmentSummaryEnabled", settings.enrichmentSummaryEnabled);
+  await s.set("enrichmentTaggingEnabled", settings.enrichmentTaggingEnabled);
   await s.set("enrichmentProvider", settings.enrichmentProvider);
   await s.set("enrichmentModel", settings.enrichmentModel);
   await s.set("debugLoggingEnabled", settings.debugLoggingEnabled);
   await s.set("trufflehogPath", settings.trufflehogPath);
+  await s.set("secretMaskerEnabled", settings.secretMaskerEnabled);
+  await s.set("shortcutOverrides", sanitizeShortcutOverrides(settings.shortcutOverrides));
   await s.save();
 }
 

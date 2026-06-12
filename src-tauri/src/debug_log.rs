@@ -78,6 +78,25 @@ pub fn write_debug_log(
     prune_log_entries(&path)
 }
 
+pub fn write_debug_log_internal(
+    app: &AppHandle,
+    state: &DebugLogState,
+    level: &str,
+    message: &str,
+) {
+    if !state.is_enabled() {
+        return;
+    }
+    let Ok(path) = resolve_log_file_path(app) else {
+        return;
+    };
+    let Ok(_guard) = state.write_lock.lock() else {
+        return;
+    };
+    let _ = append_log_line(&path, level, message);
+    let _ = prune_log_entries(&path);
+}
+
 #[tauri::command]
 pub fn open_debug_log_folder(app: AppHandle) -> Result<(), String> {
     let path = resolve_log_file_path(&app)?;

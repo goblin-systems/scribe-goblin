@@ -7,15 +7,16 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 
 #[cfg(target_os = "windows")]
-use windows::Win32::System::DataExchange::{
-    CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW,
-};
-#[cfg(target_os = "windows")]
-use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+use windows::core::PCWSTR;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::HGLOBAL;
 #[cfg(target_os = "windows")]
-use windows::core::PCWSTR;
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    RegisterClipboardFormatW,
+};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
 
 pub struct ClipboardState {
     pub monitoring: Arc<AtomicBool>,
@@ -36,10 +37,10 @@ fn get_html_from_clipboard() -> Option<String> {
         if OpenClipboard(None).is_err() {
             return None;
         }
-        
+
         let format_name: Vec<u16> = "HTML Format\0".encode_utf16().collect();
         let cf_html = RegisterClipboardFormatW(PCWSTR(format_name.as_ptr()));
-        
+
         let mut result = None;
         if cf_html != 0 && IsClipboardFormatAvailable(cf_html).is_ok() {
             if let Ok(handle) = GetClipboardData(cf_html) {
@@ -71,9 +72,12 @@ fn get_html_from_clipboard() -> Option<String> {
 
 #[cfg(target_os = "windows")]
 fn get_active_app_name() -> Option<String> {
-    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
-    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT};
     use std::path::Path;
+    use windows::Win32::System::Threading::{
+        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
     unsafe {
         let hwnd = GetForegroundWindow();
@@ -86,14 +90,22 @@ fn get_active_app_name() -> Option<String> {
             return None;
         }
 
-        let process_handle = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id) {
+        let process_handle = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process_id)
+        {
             Ok(h) => h,
             Err(_) => return None,
         };
 
         let mut buffer = [0u16; 1024];
         let mut size = buffer.len() as u32;
-        if QueryFullProcessImageNameW(process_handle, PROCESS_NAME_FORMAT(0), windows::core::PWSTR(buffer.as_mut_ptr()), &mut size).is_ok() {
+        if QueryFullProcessImageNameW(
+            process_handle,
+            PROCESS_NAME_FORMAT(0),
+            windows::core::PWSTR(buffer.as_mut_ptr()),
+            &mut size,
+        )
+        .is_ok()
+        {
             let full_path = String::from_utf16_lossy(&buffer[..size as usize]);
             let name = Path::new(&full_path)
                 .file_name()
@@ -137,7 +149,7 @@ pub fn start_clipboard_monitor(
                 if !trimmed.is_empty() && trimmed != last_text.as_str() {
                     println!("[CLIPBOARD] New text detected: {}", trimmed);
                     last_text = trimmed.to_string();
-                    
+
                     #[cfg(target_os = "windows")]
                     let html = get_html_from_clipboard();
                     #[cfg(target_os = "windows")]
@@ -148,11 +160,14 @@ pub fn start_clipboard_monitor(
                     #[cfg(not(target_os = "windows"))]
                     let source_app: Option<String> = None;
 
-                    let _ = app.emit("clipboard-capture", serde_json::json!({
-                        "content": trimmed,
-                        "html_content": html,
-                        "source_app": source_app
-                    }));
+                    let _ = app.emit(
+                        "clipboard-capture",
+                        serde_json::json!({
+                            "content": trimmed,
+                            "html_content": html,
+                            "source_app": source_app
+                        }),
+                    );
                 }
             }
             thread::sleep(std::time::Duration::from_millis(500));

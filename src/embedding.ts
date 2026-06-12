@@ -61,9 +61,8 @@ export async function getEmbedding(text: string, settings: Settings): Promise<nu
 }
 
 async function getLocalEmbedding(text: string): Promise<number[]> {
-  debugLog("getLocalEmbedding using classify_text backend", "INFO");
-  const result = await invoke<{ embedding: number[] }>("classify_text", { text });
-  return result.embedding;
+  debugLog("getLocalEmbedding using generate_embedding backend", "INFO");
+  return invoke<number[]>("generate_embedding", { text });
 }
 
 async function getOpenAIEmbedding(text: string, apiKey: string, model: string): Promise<number[]> {

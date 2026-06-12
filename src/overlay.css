@@ -1,0 +1,86 @@
+@import "@goblin-systems/goblin-design-system/style.css";
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font, "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif);
+  color: var(--text-subtle, var(--text));
+}
+
+.overlay-container {
+  overflow: visible;
+}
+
+.results-list {
+  min-height: 0;
+  overflow-x: hidden;
+}
+
+.context-menu {
+  min-width: 188px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+}
+
+.overlay-empty-state {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.result-meta-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.overlay-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--surface-sunken, var(--bg-input));
+  color: var(--text-subtle, var(--text));
+  white-space: nowrap;
+}
+
+.overlay-badge--auto,
+.overlay-badge--blue {
+  color: var(--accent);
+}
+
+.overlay-badge--pinned {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+}
+
+.overlay-badge--green {
+  color: var(--success);
+}
+
+.overlay-badge--red {
+  color: var(--error);
+}
+
+.overlay-badge--orange {
+  color: var(--warning);
+}
+
+.badge-remove-btn {
+  all: unset;
+  cursor: pointer;
+  opacity: 0.6;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.badge-remove-btn:hover {
+  opacity: 1;
+}

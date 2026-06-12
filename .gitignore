@@ -3,3 +3,5 @@ node_modiules/
 dist/
 **/node_modules/
 **/dist/
+resources/**/*.gguf
+resources/**/*.onnx

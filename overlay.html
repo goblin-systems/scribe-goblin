@@ -1,16 +1,26 @@
 <!DOCTYPE html>
-<html data-theme="goblin" lang="en">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Scribe Goblin Overlay</title>
+    <link rel="stylesheet" href="/src/overlay.css" />
     <script type="module" src="/src/overlay.ts" defer></script>
     <style>
       :root {
-        --overlay-bg: rgba(26, 27, 38, 0.95);
-        --overlay-border: rgba(255, 255, 255, 0.1);
-        --item-hover: rgba(255, 255, 255, 0.05);
-        --item-selected: rgba(122, 162, 247, 0.2);
+        --overlay-bg: var(--surface-raised, var(--bg-section));
+        --overlay-border: var(--border);
+        --overlay-shadow: var(--shadow-card, 0 8px 32px rgba(0, 0, 0, 0.3));
+        --overlay-item-hover: var(--surface-sunken, var(--bg-input));
+        --overlay-item-selected: var(--surface-sunken, var(--bg-input));
+        --overlay-input-bg: var(--surface-sunken, var(--bg-input));
+        --overlay-footer-bg: var(--surface-sunken, var(--bg-input));
+        --overlay-text: var(--text-base, var(--text));
+        --overlay-text-subtle: var(--text-subtle, var(--text));
+        --overlay-text-muted: var(--text-muted);
+        --overlay-accent: var(--accent);
+        --overlay-warning: var(--warning);
+        --overlay-kbd-bg: var(--bg-input);
       }
 
       body {
@@ -19,7 +29,7 @@
         overflow: hidden;
         background: transparent;
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        color: #a9b1d6;
+        color: var(--overlay-text-subtle);
       }
 
       .overlay-container {
@@ -30,7 +40,7 @@
         border-radius: 12px;
         display: flex;
         flex-direction: column;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        box-shadow: var(--overlay-shadow);
         backdrop-filter: blur(10px);
       }
 
@@ -41,18 +51,18 @@
 
       .search-input {
         width: 100%;
-        background: rgba(0, 0, 0, 0.2);
+        background: var(--overlay-input-bg);
         border: 1px solid var(--overlay-border);
         border-radius: 6px;
         padding: 8px 12px;
-        color: #c0caf5;
+        color: var(--overlay-text);
         font-size: 14px;
         box-sizing: border-box;
         outline: none;
       }
 
       .search-input:focus {
-        border-color: #7aa2f7;
+        border-color: var(--overlay-accent);
       }
 
       .results-list {
@@ -71,18 +81,18 @@
       }
 
       .result-item:hover {
-        background: var(--item-hover);
+        background: var(--overlay-item-hover);
       }
 
       .result-item.is-selected {
-        background: var(--item-selected);
-        border-left: 3px solid #7aa2f7;
+        background: var(--overlay-item-selected);
+        border-left: 3px solid var(--overlay-accent);
       }
 
       .result-content {
         font-size: 13px;
         line-height: 1.4;
-        color: #c0caf5;
+        color: var(--overlay-text);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -90,14 +100,14 @@
 
       .masked-content { display: none; }
       .result-item.is-secret .unmasked-content { display: none; }
-      .result-item.is-secret .masked-content { display: inline; color: #565f89; font-family: monospace; letter-spacing: 2px; }
+      .result-item.is-secret .masked-content { display: inline; color: var(--overlay-text-muted); font-family: monospace; letter-spacing: 2px; }
 
       body.alt-pressed .result-item.is-secret .unmasked-content { display: inline; }
       body.alt-pressed .result-item.is-secret .masked-content { display: none; }
 
       .result-meta {
         font-size: 11px;
-        color: #565f89;
+        color: var(--overlay-text-muted);
         display: flex;
         justify-content: space-between;
       }
@@ -105,19 +115,35 @@
       .overlay-footer {
         padding: 8px 12px;
         font-size: 11px;
-        color: #565f89;
+        color: var(--overlay-text-muted);
         border-top: 1px solid var(--overlay-border);
-        background: rgba(0, 0, 0, 0.1);
+        background: var(--overlay-footer-bg);
         display: flex;
         justify-content: space-between;
+        gap: 12px;
+      }
+
+      .overlay-footer-left {
+        display: flex;
+        gap: 12px;
+      }
+
+      .overlay-footer-hint {
+        color: var(--overlay-accent);
+        white-space: nowrap;
+      }
+
+      .result-attachment-hint {
+        font-size: 11px;
+        color: var(--overlay-warning);
       }
 
       kbd {
-        background: #24283b;
-        border: 1px solid #414868;
+        background: var(--overlay-kbd-bg);
+        border: 1px solid var(--overlay-border);
         border-radius: 3px;
         padding: 1px 4px;
-        color: #7aa2f7;
+        color: var(--overlay-accent);
         font-family: inherit;
       }
 
@@ -126,7 +152,7 @@
         width: 6px;
       }
       .results-list::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--overlay-border);
         border-radius: 3px;
       }
     </style>
@@ -140,9 +166,11 @@
         <!-- Results will be injected here -->
       </div>
       <div class="overlay-footer">
-        <span><kbd>Enter</kbd> Paste</span>
-        <span><kbd>Del</kbd> Delete</span>
-        <span><kbd>Esc</kbd> Close</span>
+        <div class="overlay-footer-left">
+          <span><kbd id="overlay-footer-paste-key">Enter</kbd> <span id="overlay-footer-hint" class="overlay-footer-hint">Paste</span></span>
+          <span><kbd id="overlay-footer-delete-key">Del</kbd> Delete</span>
+        </div>
+        <span><kbd id="overlay-footer-close-key">Esc</kbd> Close</span>
       </div>
     </div>
   </body>

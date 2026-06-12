@@ -6,6 +6,7 @@
     <title>Scribe Goblin</title>
     <script type="module" src="/src/main.ts"></script>
     <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="stylesheet" href="/src/graph.css" />
   </head>
   <body>
     <main class="app-shell">
@@ -39,13 +40,18 @@
               <button class="nav-option" type="button" data-nav-id="new-note">
                 <span class="nav-option-icon"><i data-lucide="file-plus-2"></i></span>
                 <span class="nav-option-label">New Note</span>
-                <span class="nav-option-shortcut">Ctrl+N</span>
+                <span id="shortcut-label-main-new-item" class="nav-option-shortcut">Ctrl+N</span>
+              </button>
+              <button class="nav-option" type="button" data-nav-id="open-import">
+                <span class="nav-option-icon"><i data-lucide="file-up"></i></span>
+                <span class="nav-option-label">Import</span>
+                <span id="shortcut-label-main-open-import" class="nav-option-shortcut">Ctrl+I</span>
               </button>
               <div class="nav-divider"></div>
               <button class="nav-option" type="button" data-nav-id="quit">
                 <span class="nav-option-icon"><i data-lucide="log-out"></i></span>
                 <span class="nav-option-label">Quit</span>
-                <span class="nav-option-shortcut">Alt+F4</span>
+                <span id="shortcut-label-system-quit" class="nav-option-shortcut">Alt+F4</span>
               </button>
             </div>
           </div>
@@ -89,6 +95,10 @@
                 <span class="nav-option-icon"><i data-lucide="clipboard-copy"></i></span>
                 <span class="nav-option-label">Capture</span>
               </button>
+              <button class="nav-option" type="button" data-nav-id="open-shortcuts-settings">
+                <span class="nav-option-icon"><i data-lucide="keyboard"></i></span>
+                <span class="nav-option-label">Shortcuts</span>
+              </button>
               <div class="nav-divider"></div>
               <button class="nav-option" type="button" data-nav-id="open-providers-settings">
                 <span class="nav-option-icon"><i data-lucide="bot"></i></span>
@@ -102,9 +112,17 @@
                 <span class="nav-option-icon"><i data-lucide="sparkles"></i></span>
                 <span class="nav-option-label">Enrichment</span>
               </button>
+              <button class="nav-option" type="button" data-nav-id="open-ranking-settings">
+                <span class="nav-option-icon"><i data-lucide="sliders-horizontal"></i></span>
+                <span class="nav-option-label">Ranking</span>
+              </button>
               <button class="nav-option" type="button" data-nav-id="open-trufflehog-settings">
                 <span class="nav-option-icon"><i data-lucide="shield-check"></i></span>
                 <span class="nav-option-label">TruffleHog</span>
+              </button>
+              <button class="nav-option" type="button" data-nav-id="open-secret-masker-settings">
+                <span class="nav-option-icon"><i data-lucide="brain"></i></span>
+                <span class="nav-option-label">Secret Masker</span>
               </button>
               <div class="nav-divider"></div>
               <button class="nav-option" type="button" data-nav-id="open-debug-settings">
@@ -139,24 +157,20 @@
         <!-- Sidebar -->
         <aside id="app-sidebar" class="app-sidebar">
           <div class="sidebar-section">
-            <nav class="sidebar-nav">
-              <button class="sidebar-nav-item is-active" type="button" data-view="notes">
-                <i data-lucide="sticky-note"></i>
-                <span>Notes</span>
-              </button>
-              <button class="sidebar-nav-item" type="button" data-view="clipboard">
+            <nav id="sidebar-nav" class="sidebar-nav">
+              <button class="sidebar-nav-item is-active" type="button" data-view-kind="clipboard">
                 <i data-lucide="clipboard"></i>
                 <span>Clipboard</span>
               </button>
             </nav>
-          </div>
-          <div class="sidebar-section sidebar-section--bottom">
-            <div class="sidebar-actions">
-              <button id="show-overlay-btn" class="secondary-btn sidebar-action-btn" type="button">
-                <i data-lucide="app-window"></i>
-                <span>Overlay</span>
+            <div class="sidebar-collections-header">
+              <span class="hint">Collections</span>
+              <button id="new-collection-btn" class="icon-btn icon-btn-sm" type="button" title="New collection">
+                <i data-lucide="plus"></i>
               </button>
             </div>
+            <nav id="collections-nav" class="sidebar-nav">
+            </nav>
           </div>
         </aside>
 
@@ -182,9 +196,16 @@
                   <i data-lucide="x"></i>
                 </button>
               </div>
+              <button class="icon-btn icon-btn-sm" id="notes-badge-filter-btn" type="button" title="Filter by badge">
+                <i data-lucide="filter"></i>
+              </button>
               <button class="secondary-btn slim-btn" id="add-note-btn" type="button">
                 <i data-lucide="plus"></i>
-                Add note
+                Add item
+              </button>
+              <button class="secondary-btn slim-btn" id="import-btn" type="button">
+                <i data-lucide="file-up"></i>
+                Import
               </button>
             </div>
 
@@ -193,9 +214,40 @@
               <textarea
                 id="quick-add-input"
                 class="input-field"
-                placeholder="Type a note… (Ctrl+Enter to save, Esc to cancel)"
+                placeholder="Type an item…"
                 rows="3"
               ></textarea>
+              <p id="quick-add-shortcut-hint" class="hint">Ctrl+Enter to save, Esc to cancel.</p>
+              <div class="quick-add-badge-row">
+                <div class="field-block quick-add-badge-field">
+                  <label class="field-label" for="quick-add-badges-input">
+                    Badges <span class="text-subtle">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    id="quick-add-badges-input"
+                    class="input-field"
+                    placeholder="e.g. todo, work, urgent"
+                    autocomplete="off"
+                  />
+                  <p class="hint">Comma-separated badges applied after save.</p>
+                  <div
+                    id="quick-add-badge-suggestions"
+                    class="quick-add-badge-suggestions"
+                    hidden
+                  ></div>
+                </div>
+                <div class="field-block quick-add-badge-color-field">
+                  <label class="field-label">Badge color</label>
+                  <div id="quick-add-badge-colors" class="badge-color-picker">
+                    <button type="button" class="badge-color-swatch is-selected" data-color="default" aria-label="Default color"></button>
+                    <button type="button" class="badge-color-swatch swatch-blue" data-color="blue" aria-label="Blue"></button>
+                    <button type="button" class="badge-color-swatch swatch-green" data-color="green" aria-label="Green"></button>
+                    <button type="button" class="badge-color-swatch swatch-red" data-color="red" aria-label="Red"></button>
+                    <button type="button" class="badge-color-swatch swatch-orange" data-color="orange" aria-label="Orange"></button>
+                  </div>
+                </div>
+              </div>
               <div class="row gap-2">
                 <button class="secondary-btn slim-btn" id="quick-add-save-btn" type="button">
                   <i data-lucide="check"></i>
@@ -232,6 +284,8 @@
                   <div id="note-detail-content" class="note-detail-content"></div>
                   <div id="note-detail-secret-actions" class="note-detail-secret-actions" hidden></div>
                   <div id="note-detail-meta" class="note-detail-meta"></div>
+                  <div id="note-detail-related" class="related-items-host"></div>
+                  <div id="note-detail-debug" class="detail-debug-host"></div>
                 </div>
               </div>
 
@@ -241,21 +295,11 @@
                 <p class="hint" style="margin:0;">Select a note to read it</p>
               </div>
 
+              <!-- Navigable graph shown when no specific note is selected -->
+              <div id="notes-graph-host" class="collection-graph-host" hidden></div>
+
             </div>
 
-            <!-- Status bar -->
-            <div class="editor-status-bar">
-              <div class="editor-status-main">
-                <span id="notes-status-left">Notes</span>
-              </div>
-              <div class="editor-status-actions">
-                <span class="text-subtle">v0.1.0</span>
-                <button class="secondary-btn slim-btn" type="button" id="show-overlay-status-btn">
-                  <i data-lucide="app-window"></i>
-                  <span>Overlay</span>
-                </button>
-              </div>
-            </div>
           </div>
 
           <!-- ── Clipboard view ─────────────────────────────────────────── -->
@@ -277,6 +321,9 @@
                   <i data-lucide="x"></i>
                 </button>
               </div>
+              <button class="icon-btn icon-btn-sm" id="clipboard-badge-filter-btn" type="button" title="Filter by badge">
+                <i data-lucide="filter"></i>
+              </button>
             </div>
 
             <!-- List + detail side by side -->
@@ -306,6 +353,8 @@
                   <div id="clipboard-detail-content" class="note-detail-content"></div>
                   <div id="clipboard-detail-secret-actions" class="note-detail-secret-actions" hidden></div>
                   <div id="clipboard-detail-meta" class="note-detail-meta"></div>
+                  <div id="clipboard-detail-related" class="related-items-host"></div>
+                  <div id="clipboard-detail-debug" class="detail-debug-host"></div>
                 </div>
               </div>
 
@@ -315,17 +364,11 @@
                 <p class="hint" style="margin:0;">Select an item to view it</p>
               </div>
 
+              <!-- Navigable graph shown when no specific clipboard entry is selected -->
+              <div id="clipboard-graph-host" class="collection-graph-host" hidden></div>
+
             </div>
 
-            <!-- Status bar -->
-            <div class="editor-status-bar">
-              <div class="editor-status-main">
-                <span id="clipboard-status-left">Clipboard</span>
-              </div>
-              <div class="editor-status-actions">
-                <span class="text-subtle">v0.1.0</span>
-              </div>
-            </div>
           </div>
 
         </section>
@@ -333,6 +376,21 @@
       </div>
 
       <!-- ── Modals ─────────────────────────────────────────────────────── -->
+
+      <div class="app-status-region">
+        <div id="notes-status-bar" class="editor-status-bar">
+          <div class="editor-status-main">
+            <span id="notes-status-left">Notes</span>
+            <div id="notes-status-meta" class="editor-status-meta" aria-live="polite"></div>
+          </div>
+        </div>
+        <div id="clipboard-status-bar" class="editor-status-bar" hidden>
+          <div class="editor-status-main">
+            <span id="clipboard-status-left">Clipboard</span>
+            <div id="clipboard-status-meta" class="editor-status-meta" aria-live="polite"></div>
+          </div>
+        </div>
+      </div>
 
       <!-- Capture Settings -->
       <div id="capture-settings-modal" class="modal-backdrop" hidden>
@@ -349,6 +407,39 @@
               <span>Monitor clipboard automatically</span>
             </label>
             <p class="hint">Anything you copy is saved as an entry in the background.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="shortcuts-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="shortcuts-settings-title">
+          <div class="modal-header">
+            <h3 id="shortcuts-settings-title">Shortcuts</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body shortcuts-settings-body">
+            <p class="hint">Editable shortcuts are saved in settings. Fixed shortcuts are listed for reference.</p>
+            <p id="shortcuts-capture-hint" class="hint">Click Edit, then press a shortcut. Press Esc to cancel capture.</p>
+
+            <section class="shortcuts-section">
+              <div class="shortcuts-section-header">
+                <h4>Editable</h4>
+                <button id="shortcuts-reset-all-btn" class="secondary-btn slim-btn" type="button">Reset all to defaults</button>
+              </div>
+              <div id="shortcuts-editable-list" class="shortcuts-list"></div>
+            </section>
+
+            <section class="shortcuts-section">
+              <div class="shortcuts-section-header">
+                <h4>Fixed / Reserved</h4>
+              </div>
+              <div id="shortcuts-fixed-list" class="shortcuts-list"></div>
+            </section>
           </div>
           <div class="modal-footer">
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>
@@ -380,7 +471,7 @@
 
             <!-- Local Setup -->
             <div id="setup-local-section">
-              <p class="hint">Using the built-in SetFit classifier for offline embeddings and classification.</p>
+              <p class="hint">Using built-in offline models for embeddings and local enrichment.</p>
             </div>
 
             <!-- OpenAI Setup -->
@@ -429,6 +520,7 @@
             </div>
           </div>
           <div class="modal-footer">
+            <button class="secondary-btn" id="retag-all-enrichment-btn" type="button">Retag All Items</button>
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>
           </div>
         </div>
@@ -459,6 +551,7 @@
             </div>
           </div>
           <div class="modal-footer">
+            <button class="secondary-btn" id="reembed-all-btn" type="button">Regenerate All Embeddings</button>
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>
           </div>
         </div>
@@ -474,11 +567,16 @@
             </button>
           </div>
           <div class="modal-body">
-            <p class="hint">Automatically summarise entries and generate tags in the background after capture.</p>
+            <p class="hint">Summaries and AI tag generation can run independently. Summaries are only generated for larger entries.</p>
 
             <label class="checkbox-label" style="margin-top:10px;">
-              <input id="enrichment-enabled-checkbox" type="checkbox" />
-              <span>Enable AI enrichment</span>
+              <input id="enrichment-summary-enabled-checkbox" type="checkbox" />
+              <span>Enable summaries for larger entries</span>
+            </label>
+
+            <label class="checkbox-label" style="margin-top:10px;">
+              <input id="enrichment-tagging-enabled-checkbox" type="checkbox" />
+              <span>Enable tags</span>
             </label>
 
             <div id="enrichment-config" hidden>
@@ -495,6 +593,57 @@
             </div>
           </div>
           <div class="modal-footer">
+            <button class="secondary-btn" id="retag-all-enrichment-btn" type="button">Retag All Items</button>
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ranking Settings -->
+      <div id="ranking-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ranking-settings-title">
+          <div class="modal-header">
+            <h3 id="ranking-settings-title">Ranking</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="hint">Hybrid search picks one weight pair based on query shape: short, medium, or long. For any single search, 5 parameters are active: keyword weight, semantic weight, recency max, RRF k, and the selected short/medium/long bucket.</p>
+
+            <div class="modal-form-grid" style="margin-top:12px;">
+              <label class="field-label" for="short-keyword-weight-input">Short query keyword weight</label>
+              <input id="short-keyword-weight-input" class="input-field" type="number" min="0" step="0.01" />
+
+              <label class="field-label" for="short-semantic-weight-input">Short query semantic weight</label>
+              <input id="short-semantic-weight-input" class="input-field" type="number" min="0" step="0.01" />
+
+              <label class="field-label" for="medium-keyword-weight-input">Medium query keyword weight</label>
+              <input id="medium-keyword-weight-input" class="input-field" type="number" min="0" step="0.01" />
+
+              <label class="field-label" for="medium-semantic-weight-input">Medium query semantic weight</label>
+              <input id="medium-semantic-weight-input" class="input-field" type="number" min="0" step="0.01" />
+
+              <label class="field-label" for="long-keyword-weight-input">Long query keyword weight</label>
+              <input id="long-keyword-weight-input" class="input-field" type="number" min="0" step="0.01" />
+
+              <label class="field-label" for="long-semantic-weight-input">Long query semantic weight</label>
+              <input id="long-semantic-weight-input" class="input-field" type="number" min="0" step="0.01" />
+
+              <label class="field-label" for="semantic-relevance-threshold-input">Semantic relevance threshold</label>
+              <input id="semantic-relevance-threshold-input" class="input-field" type="number" min="0" max="1" step="0.001" />
+
+              <label class="field-label" for="recency-boost-max-input">Recency max boost</label>
+              <input id="recency-boost-max-input" class="input-field" type="number" min="0" step="0.001" />
+
+              <label class="field-label" for="rrf-k-input">RRF k</label>
+              <input id="rrf-k-input" class="input-field" type="number" min="1" step="1" />
+            </div>
+
+            <p class="hint" style="margin-top:12px;">Formula used per result: `kw_rrf = keyword_weight / (rrf_k + keyword_rank)` and `sem_rrf = semantic_weight / (rrf_k + semantic_rank)`, then `fused = kw_rrf + sem_rrf + recency_boost`. Only one bucket pair (short, medium, or long) participates per search. Semantic results below the relevance threshold are discarded before ranking, so recent but irrelevant semantic matches do not survive just because they are new. These values rerank live while you edit them.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn" id="reset-ranking-btn" type="button">Reset To Defaults</button>
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>
           </div>
         </div>
@@ -527,6 +676,30 @@
                 <i data-lucide="zap"></i>
                 Test
               </button>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Secret Masker Settings -->
+      <div id="secret-masker-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="secret-masker-settings-title">
+          <div class="modal-header">
+            <h3 id="secret-masker-settings-title">Secret Masker</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="hint">Uses a DistilBERT ML model to detect secrets (API keys, tokens, passwords) that TruffleHog may miss. Runs locally via ONNX — no data leaves your machine.</p>
+            <div class="modal-form-grid" style="margin-top:12px;">
+              <label class="checkbox-label">
+                <input id="secret-masker-enabled-checkbox" type="checkbox" />
+                <span>Enable secret masker model</span>
+              </label>
             </div>
           </div>
           <div class="modal-footer">
@@ -608,6 +781,160 @@
           <div class="modal-footer">
             <button class="secondary-btn modal-btn-reject" type="button">Cancel</button>
             <button class="secondary-btn modal-btn-accept" id="add-badge-confirm-btn" type="button">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="create-collection-modal" class="modal-backdrop" hidden>
+        <div class="modal-card modal-card--collection" role="dialog" aria-modal="true" aria-labelledby="create-collection-title">
+          <div class="modal-header">
+            <h3 id="create-collection-title">New Collection</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+            <div class="modal-body">
+              <div class="field-block">
+                <label class="field-label" for="create-collection-input">Collection name</label>
+                <input type="text" id="create-collection-input" class="input-field" placeholder="e.g. Reading list" autocomplete="off" />
+              </div>
+              <div class="field-block">
+                <label class="field-label">Collection type</label>
+                <div class="radio-group collection-type-group">
+                  <label class="radio-label">
+                    <input id="create-collection-type-standard" type="radio" name="create-collection-type" value="standard" checked />
+                    <span>Standard</span>
+                  </label>
+                  <label class="radio-label">
+                    <input id="create-collection-type-checklist" type="radio" name="create-collection-type" value="checklist" />
+                    <span>Checklist</span>
+                  </label>
+                  <label class="radio-label">
+                    <input id="create-collection-type-filter" type="radio" name="create-collection-type" value="filter" />
+                    <span>Filter</span>
+                  </label>
+                </div>
+                <p id="create-collection-type-hint" class="hint">Checklist collections show completion checkboxes in the active collection view.</p>
+              </div>
+              <div class="field-block">
+                <label class="field-label" for="create-collection-icon-search-input">Icon</label>
+                <div class="collection-icon-preview-row">
+                  <div id="create-collection-icon-preview" class="collection-icon-preview" aria-hidden="true"></div>
+                  <span id="create-collection-icon-preview-label" class="collection-icon-preview-label">folder</span>
+              </div>
+              <input
+                type="text"
+                id="create-collection-icon-search-input"
+                 class="input-field"
+                 placeholder="Search icons…"
+                 autocomplete="off"
+                 spellcheck="false"
+               />
+               <div id="create-collection-icon-options" class="collection-icon-options" role="listbox" aria-label="Collection icon options"></div>
+               <p id="create-collection-icon-hint" class="hint">Search the packaged icon set.</p>
+             </div>
+           </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Cancel</button>
+            <button class="secondary-btn modal-btn-accept" id="create-collection-confirm-btn" type="button">Create</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="rename-collection-modal" class="modal-backdrop" hidden>
+        <div class="modal-card modal-card--sm" role="dialog" aria-modal="true" aria-labelledby="rename-collection-title">
+          <div class="modal-header">
+            <h3 id="rename-collection-title">Rename Collection</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="field-block">
+              <label class="field-label" for="rename-collection-input">Collection name</label>
+              <input type="text" id="rename-collection-input" class="input-field" placeholder="e.g. Reading list" autocomplete="off" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Cancel</button>
+            <button class="secondary-btn modal-btn-accept" id="rename-collection-confirm-btn" type="button">Rename</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="delete-collection-modal" class="modal-backdrop" hidden>
+        <div class="modal-card modal-card--sm" role="dialog" aria-modal="true" aria-labelledby="delete-collection-title">
+          <div class="modal-header">
+            <h3 id="delete-collection-title">Delete Collection</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p id="delete-collection-message" class="hint">Move items into another collection before deleting.</p>
+            <div class="field-block">
+              <label class="field-label" for="delete-collection-destination-select">Move items to</label>
+              <select id="delete-collection-destination-select" class="select-field"></select>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Cancel</button>
+            <button class="secondary-btn modal-btn-accept" id="delete-collection-confirm-btn" type="button">Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Import -->
+      <div id="import-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="import-title">
+          <div class="modal-header">
+            <h3 id="import-title">Import</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="field-block">
+              <label class="field-label" for="import-text-input">Paste long-form text</label>
+              <textarea
+                id="import-text-input"
+                class="input-field import-textarea"
+                placeholder="Paste article drafts, meeting notes, transcripts, or other long-form text…"
+                rows="8"
+              ></textarea>
+            </div>
+
+            <div class="field-block">
+              <div class="row gap-2 import-section-header">
+                <label class="field-label" for="import-file-input">Files</label>
+                <button class="secondary-btn slim-btn" id="import-choose-files-btn" type="button">
+                  <i data-lucide="folder-open"></i>
+                  Choose files
+                </button>
+                <button class="secondary-btn slim-btn" id="import-clear-files-btn" type="button" hidden>
+                  <i data-lucide="x"></i>
+                  Clear files
+                </button>
+              </div>
+              <input id="import-file-input" type="file" multiple hidden />
+              <div id="import-drop-zone" class="import-drop-zone" tabindex="0">
+                <i data-lucide="file-plus-2"></i>
+                <div>
+                  <div class="import-drop-zone-title">Drag files here</div>
+                  <p class="hint">Use drag &amp; drop or the file picker to import documents and attachments.</p>
+                </div>
+              </div>
+              <div class="import-selected-files-wrap">
+                <p id="import-selected-files-empty" class="hint">No files selected yet.</p>
+                <div id="import-selected-files" class="import-selected-files"></div>
+              </div>
+            </div>
+
+            <p id="import-summary" class="hint">Paste text, choose files, or drag files into the drop zone.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Cancel</button>
+            <button class="secondary-btn modal-btn-accept" id="import-confirm-btn" type="button">Import</button>
           </div>
         </div>
       </div>

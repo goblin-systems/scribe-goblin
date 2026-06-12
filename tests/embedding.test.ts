@@ -1,10 +1,10 @@
 import { describe, test, expect } from "vitest";
 import { getEmbedding, testEmbeddingConnection } from "../src/embedding";
-import { enrichEntry } from "../src/enrichment";
-import type { Settings } from "../src/settings";
+import { enrichEntry, summarizeEntry } from "../src/enrichment";
+import { getDefaultSettings, type Settings } from "../src/settings";
 
 const baseSettings: Settings = {
-  clipboardMonitoring: true,
+  ...getDefaultSettings(),
   providers: {
     openai: { apiKey: process.env.OPENAI_API_KEY || "", modelCache: null },
     gemini: { apiKey: process.env.GEMINI_API_KEY || "", modelCache: null },
@@ -12,7 +12,8 @@ const baseSettings: Settings = {
   },
   embeddingProvider: "none",
   embeddingModel: "",
-  enrichmentEnabled: true,
+  enrichmentSummaryEnabled: true,
+  enrichmentTaggingEnabled: true,
   enrichmentProvider: "none",
   enrichmentModel: "",
   debugLoggingEnabled: true,
@@ -46,9 +47,10 @@ describe("Integration: API Providers", () => {
       if (!settings.providers.openai.apiKey) return;
       
       const result = await enrichEntry("The goblin walked into the cave and found a shiny gold coin.", settings);
-      expect(typeof result.summary).toBe("string");
-      expect(result.summary.length).toBeGreaterThan(0);
       expect(Array.isArray(result.tags)).toBe(true);
+      const summary = await summarizeEntry("The goblin walked into the cave and found a shiny gold coin.", settings);
+      expect(typeof summary.summary).toBe("string");
+      expect(summary.summary.length).toBeGreaterThan(0);
     });
   });
 
@@ -79,9 +81,10 @@ describe("Integration: API Providers", () => {
       if (!settings.providers.gemini.apiKey) return;
       
       const result = await enrichEntry("The goblin walked into the cave and found a shiny gold coin.", settings);
-      expect(typeof result.summary).toBe("string");
-      expect(result.summary.length).toBeGreaterThan(0);
       expect(Array.isArray(result.tags)).toBe(true);
+      const summary = await summarizeEntry("The goblin walked into the cave and found a shiny gold coin.", settings);
+      expect(typeof summary.summary).toBe("string");
+      expect(summary.summary.length).toBeGreaterThan(0);
     });
   });
 });

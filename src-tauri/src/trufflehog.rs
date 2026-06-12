@@ -378,3 +378,160 @@ pub fn trufflehog_scan(
     let raw = scan_text(&binary, &text, use_stdin)?;
     Ok(to_findings(raw))
 }
+
+#[cfg(test)]
+mod tests {
+    //! Integration tests for the TruffleHog CLI module.
+    //! These tests require a real `trufflehog` binary on PATH or `TRUFFLEHOG_PATH`.
+    //! Run with: `cargo test trufflehog -- --ignored`
+
+    use super::*;
+
+    fn resolve_test_binary() -> PathBuf {
+        if let Some(custom) = std::env::var_os("TRUFFLEHOG_PATH") {
+            let custom = PathBuf::from(custom);
+            if custom.is_file() {
+                return custom;
+            }
+        }
+
+        find_trufflehog(None).expect(
+            "TruffleHog binary not found. Install `trufflehog` or set TRUFFLEHOG_PATH before running ignored tests.",
+        )
+    }
+
+    fn fixture_google_gemini_api_key() -> &'static str {
+        "AIzaSyA12345678901234567890123456789012"
+    }
+
+    #[test]
+    #[ignore]
+    fn test_trufflehog_binary_can_be_found() {
+        let binary = resolve_test_binary();
+        assert!(
+            binary.is_file(),
+            "Resolved binary should be a file: {:?}",
+            binary
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_trufflehog_version_is_available() {
+        let binary = resolve_test_binary();
+        let version = get_version(&binary).expect("Expected trufflehog --version output");
+        assert!(
+            !version.trim().is_empty(),
+            "TruffleHog version output should not be empty"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_scan_clean_text_returns_no_findings() {
+        let binary = resolve_test_binary();
+        let use_stdin = supports_stdin_subcommand(&binary);
+        let findings = scan_text(
+            &binary,
+            "Hello team, this is a harmless sentence with no secrets.",
+            use_stdin,
+        )
+        .expect("scan_text failed");
+        assert!(
+            findings.is_empty(),
+            "Expected no findings, got {}",
+            findings.len()
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_scan_google_gemini_api_key_detects_findings() {
+        let binary = resolve_test_binary();
+        let use_stdin = supports_stdin_subcommand(&binary);
+        let findings = scan_text(&binary, fixture_google_gemini_api_key(), use_stdin)
+            .expect("scan_text failed for Google Gemini API key fixture");
+        assert!(
+            !findings.is_empty(),
+            "Expected at least one finding for Google Gemini API key fixture"
+        );
+        assert!(
+            findings.iter().any(|f| !f.detector_name.trim().is_empty()),
+            "Expected at least one non-empty detector name"
+        );
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.detector_name == "GoogleGeminiAPIKey"),
+            "Expected GoogleGeminiAPIKey detector in findings"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_scan_google_gemini_api_key_via_tempfile_detects_findings() {
+        let binary = resolve_test_binary();
+        let findings = scan_via_tempfile(&binary, fixture_google_gemini_api_key())
+            .expect("scan_via_tempfile failed for Google Gemini API key fixture");
+        assert!(
+            !findings.is_empty(),
+            "Expected at least one finding for Google Gemini API key fixture via tempfile"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_scan_google_gemini_api_key_via_stdin_detects_findings_when_supported() {
+        let binary = resolve_test_binary();
+        if !supports_stdin_subcommand(&binary) {
+            return;
+        }
+
+        let findings = scan_via_stdin(&binary, fixture_google_gemini_api_key())
+            .expect("scan_via_stdin failed for Google Gemini API key fixture");
+        assert!(
+            !findings.is_empty(),
+            "Expected at least one finding for Google Gemini API key fixture via stdin"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_detected_result_contains_redaction_and_decoder() {
+        let binary = resolve_test_binary();
+        let use_stdin = supports_stdin_subcommand(&binary);
+        let findings = scan_text(&binary, fixture_google_gemini_api_key(), use_stdin)
+            .expect("scan_text failed for Google Gemini API key fixture");
+        assert!(
+            !findings.is_empty(),
+            "Expected at least one finding for Google Gemini API key fixture"
+        );
+        assert!(
+            findings.iter().all(|f| !f.redacted.trim().is_empty()),
+            "Expected redacted output for detected findings"
+        );
+        assert!(
+            findings.iter().all(|f| !f.decoder_name.trim().is_empty()),
+            "Expected decoder name for detected findings"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_to_findings_produces_masked_output() {
+        let binary = resolve_test_binary();
+        let use_stdin = supports_stdin_subcommand(&binary);
+        let raw = scan_text(&binary, fixture_google_gemini_api_key(), use_stdin)
+            .expect("scan_text failed for Google Gemini API key fixture");
+        let findings = to_findings(raw);
+
+        assert!(
+            !findings.is_empty(),
+            "Expected at least one converted finding for Google Gemini API key fixture"
+        );
+        assert!(
+            findings.iter().all(|f| !f.raw_redacted.trim().is_empty()),
+            "All converted findings should include redacted output"
+        );
+    }
+}

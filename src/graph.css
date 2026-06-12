@@ -1,0 +1,160 @@
+/* ── Collection graph view ─────────────────────────────────────────────────
+ *
+ * Mounted as a sibling of the note/clipboard detail placeholders. When the
+ * placeholder would otherwise show "select an item to view it", the graph
+ * takes its place and renders all entries as a navigable, force-directed
+ * web of glowing nodes.
+ */
+
+.collection-graph-host {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(167, 139, 250, 0.05), transparent 60%),
+    radial-gradient(ellipse at 80% 80%, rgba(45, 212, 191, 0.04), transparent 60%),
+    #080c12;
+}
+
+.collection-graph-host[hidden] {
+  display: none;
+}
+
+.collection-graph-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+
+.collection-graph-canvas.is-grabbing {
+  cursor: grabbing;
+}
+
+.collection-graph-canvas.is-pointer {
+  cursor: pointer;
+}
+
+.collection-graph-empty,
+.collection-graph-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3, 8px);
+  color: rgba(167, 139, 250, 0.55);
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.collection-graph-empty .collection-graph-empty-title {
+  font-size: 13px;
+  color: rgba(167, 139, 250, 0.8);
+  text-shadow: 0 0 12px rgba(167, 139, 250, 0.4);
+}
+
+.collection-graph-empty .collection-graph-empty-hint {
+  color: rgba(148, 163, 184, 0.55);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: inherit;
+}
+
+.collection-graph-toolbar {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+  z-index: 2;
+  pointer-events: auto;
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+}
+
+.collection-graph-toolbar-btn {
+  all: unset;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 25, 35, 0.7);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  border-radius: 4px;
+  color: rgba(167, 139, 250, 0.7);
+  font-size: 14px;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.collection-graph-toolbar-btn:hover {
+  border-color: rgba(167, 139, 250, 0.6);
+  color: rgba(167, 139, 250, 1);
+  background: rgba(30, 35, 50, 0.85);
+}
+
+.collection-graph-toolbar-btn:active {
+  background: rgba(40, 45, 60, 0.95);
+}
+
+.collection-graph-stats {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  display: flex;
+  gap: 14px;
+  z-index: 2;
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.55);
+}
+
+.collection-graph-stats .collection-graph-stat-value {
+  color: rgba(167, 139, 250, 0.8);
+}
+
+.collection-graph-stats .collection-graph-stat--secret .collection-graph-stat-value {
+  color: rgba(248, 113, 113, 0.85);
+}
+
+.collection-graph-live-dot {
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+  pointer-events: none;
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  color: rgba(167, 139, 250, 0.7);
+}
+
+.collection-graph-live-dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(167, 139, 250, 0.9);
+  box-shadow: 0 0 8px rgba(167, 139, 250, 0.8);
+  animation: collection-graph-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes collection-graph-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.85); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}

@@ -17,6 +17,11 @@ interface TruffleHogStatus {
   supports_stdin: boolean;
 }
 
+interface CachedTruffleHogStatus {
+  customPath: string | null;
+  status: TruffleHogStatus;
+}
+
 interface TruffleHogFinding {
   detector_name: string;
   verified: boolean;
@@ -24,85 +29,32 @@ interface TruffleHogFinding {
   decoder: string;
 }
 
-// --- Regex-based fallback (original detectors) ---
-
-const DETECTORS: Array<{ name: string; type: SecretType; regex: RegExp }> = [
-  {
-    name: "jwt_token",
-    type: "token",
-    regex: /\beyJ[A-Za-z0-9-_=]+\.eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_.+/=]+\b/,
-  },
-  {
-    name: "private_key",
-    type: "private_key",
-    regex: /-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----/,
-  },
-  {
-    name: "openai_api_key",
-    type: "api_key",
-    regex: /\bsk-[a-zA-Z0-9]{48}\b/,
-  },
-  {
-    name: "aws_access_key",
-    type: "api_key",
-    regex: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/,
-  },
-  {
-    name: "google_api_key",
-    type: "api_key",
-    regex: /\bAIza[0-9A-Za-z-_]{35}\b/,
-  },
-  {
-    name: "github_pat",
-    type: "token",
-    regex: /\bgh[p|o|u|s|r]_[A-Za-z0-9_]{36,255}\b/,
-  },
-  {
-    name: "slack_token",
-    type: "token",
-    regex: /\bxox[baprs]-[0-9a-zA-Z]{10,48}\b/,
-  },
-  {
-    name: "stripe_api_key",
-    type: "api_key",
-    regex: /\bsk_(?:live|test)_[0-9a-zA-Z]{24}\b/,
-  },
-];
-
-export function runTruffleHogRegex(text: string): TruffleHogMatch | null {
-  for (const detector of DETECTORS) {
-    if (detector.regex.test(text)) {
-      return {
-        detector: detector.name,
-        type: detector.type,
-        confidence: 0.9,
-      };
-    }
-  }
-  return null;
-}
-
 // --- Native TruffleHog CLI backend ---
 
-let cachedStatus: TruffleHogStatus | null = null;
+let cachedStatus: CachedTruffleHogStatus | null = null;
 
 export async function checkTruffleHogAvailability(
   customPath?: string,
 ): Promise<TruffleHogStatus> {
-  if (cachedStatus !== null) return cachedStatus;
+  const normalizedPath = customPath?.trim() || null;
+  if (cachedStatus !== null && cachedStatus.customPath === normalizedPath) return cachedStatus.status;
   try {
-    cachedStatus = await invoke<TruffleHogStatus>("trufflehog_check", {
+    const status = await invoke<TruffleHogStatus>("trufflehog_check", {
       customPath,
     });
+    cachedStatus = { customPath: normalizedPath, status };
   } catch {
     cachedStatus = {
-      available: false,
-      path: null,
-      version: null,
-      supports_stdin: false,
+      customPath: normalizedPath,
+      status: {
+        available: false,
+        path: null,
+        version: null,
+        supports_stdin: false,
+      },
     };
   }
-  return cachedStatus;
+  return cachedStatus.status;
 }
 
 /** Reset the cached status (useful when settings change). */
@@ -111,22 +63,27 @@ export function resetTruffleHogCache(): void {
 }
 
 function mapDetectorNameToSecretType(detectorName: string): SecretType {
-  const name = detectorName.toLowerCase();
+  const normalized = detectorName.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-  // Exact-prefix matches first
-  if (name === "aws" || name === "awsiam") return "api_key";
-  if (name === "github" || name === "githubapp") return "token";
-  if (name === "slack" || name === "slackwebhook") return "token";
-  if (name === "openai") return "api_key";
-  if (name === "stripe") return "api_key";
-  if (name === "privatekey") return "private_key";
-
-  // Fuzzy keyword matches
-  if (name.includes("key") || name.includes("api")) return "api_key";
-  if (name.includes("token") || name.includes("webhook")) return "token";
-  if (name.includes("password") || name.includes("secret")) return "password";
-
-  return "unknown";
+  switch (normalized) {
+    case "aws":
+    case "awsiam":
+    case "openai":
+    case "stripe":
+    case "google":
+    case "gcp":
+      return "api_key";
+    case "github":
+    case "githubapp":
+    case "jwt":
+    case "slack":
+    case "slackwebhook":
+      return "token";
+    case "privatekey":
+      return "private_key";
+    default:
+      return "unknown";
+  }
 }
 
 function mapFindingToMatch(finding: TruffleHogFinding): TruffleHogMatch {
@@ -167,17 +124,9 @@ export async function runTruffleHogNative(
 
 export async function runTruffleHog(
   text: string,
+  customPath?: string,
 ): Promise<TruffleHogMatch | null> {
-  // Try native CLI first
-  try {
-    const nativeResult = await runTruffleHogNative(text);
-    if (nativeResult) return nativeResult;
-  } catch {
-    // Native unavailable or errored — fall through to regex
-  }
-
-  // Fallback to regex detectors
-  return runTruffleHogRegex(text);
+  return runTruffleHogNative(text, customPath);
 }
 
 export function maskSecret(secret: string): string {

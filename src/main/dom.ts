@@ -9,29 +9,40 @@ export interface ScribeDom {
   toggleSidebarNav: HTMLButtonElement;
   toggleSidebarNavLabel: HTMLElement;
   appSidebar: HTMLElement;
-  showOverlayBtn: HTMLButtonElement;
-  showOverlayStatusBtn: HTMLButtonElement;
+  sidebarNav: HTMLElement;
+  collectionsNav: HTMLElement;
+  newCollectionBtn: HTMLButtonElement;
 
   // Clipboard
   clipboardSearchInput: HTMLInputElement;
   clipboardSearchClearBtn: HTMLButtonElement;
+  clipboardBadgeFilterBtn: HTMLButtonElement;
   clipboardList: HTMLDivElement;
   clipboardEmpty: HTMLDivElement;
   clipboardDetail: HTMLDivElement;
   clipboardDetailContent: HTMLDivElement;
   clipboardDetailSecretActions: HTMLDivElement;
   clipboardDetailMeta: HTMLDivElement;
+  clipboardDetailRelated: HTMLDivElement;
+  clipboardDetailDebug: HTMLDivElement;
   clipboardDetailClose: HTMLButtonElement;
   clipboardDetailDelete: HTMLButtonElement;
   clipboardDetailPlaceholder: HTMLDivElement;
+  clipboardStatusBar: HTMLDivElement;
   clipboardStatusLeft: HTMLSpanElement;
+  clipboardStatusMeta: HTMLDivElement;
 
   // Notes
   searchInput: HTMLInputElement;
   searchClearBtn: HTMLButtonElement;
+  notesBadgeFilterBtn: HTMLButtonElement;
   addNoteBtn: HTMLButtonElement;
+  importBtn: HTMLButtonElement;
   quickAddForm: HTMLDivElement;
   quickAddInput: HTMLTextAreaElement;
+  quickAddBadgesInput: HTMLInputElement;
+  quickAddBadgeSuggestions: HTMLDivElement;
+  quickAddBadgeColors: HTMLDivElement;
   quickAddSaveBtn: HTMLButtonElement;
   quickAddCancelBtn: HTMLButtonElement;
   notesList: HTMLDivElement;
@@ -40,21 +51,60 @@ export interface ScribeDom {
   noteDetailContent: HTMLDivElement;
   noteDetailSecretActions: HTMLDivElement;
   noteDetailMeta: HTMLDivElement;
+  noteDetailRelated: HTMLDivElement;
+  noteDetailDebug: HTMLDivElement;
   noteDetailClose: HTMLButtonElement;
   noteDetailDelete: HTMLButtonElement;
   noteDetailPlaceholder: HTMLDivElement;
+  notesStatusBar: HTMLDivElement;
   notesStatusLeft: HTMLSpanElement;
+  notesStatusMeta: HTMLDivElement;
 
   // Modals (backdrops)
   captureSettingsModal: HTMLElement;
+  shortcutsSettingsModal: HTMLElement;
   providersSettingsModal: HTMLElement;
   embeddingsSettingsModal: HTMLElement;
   enrichmentSettingsModal: HTMLElement;
+  rankingSettingsModal: HTMLElement;
   debugSettingsModal: HTMLElement;
   aboutModal: HTMLElement;
   addBadgeModal: HTMLElement;
+  importModal: HTMLElement;
+  createCollectionModal: HTMLElement;
+  createCollectionInput: HTMLInputElement;
+  createCollectionTypeStandard: HTMLInputElement;
+  createCollectionTypeChecklist: HTMLInputElement;
+  createCollectionTypeFilter: HTMLInputElement;
+  createCollectionTypeHint: HTMLParagraphElement;
+  createCollectionIconPreview: HTMLDivElement;
+  createCollectionIconPreviewLabel: HTMLSpanElement;
+  createCollectionIconSearchInput: HTMLInputElement;
+  createCollectionIconOptions: HTMLDivElement;
+  createCollectionIconHint: HTMLParagraphElement;
+  createCollectionConfirmBtn: HTMLButtonElement;
+  renameCollectionModal: HTMLElement;
+  renameCollectionInput: HTMLInputElement;
+  renameCollectionConfirmBtn: HTMLButtonElement;
+  deleteCollectionModal: HTMLElement;
+  deleteCollectionMessage: HTMLParagraphElement;
+  deleteCollectionDestinationSelect: HTMLSelectElement;
+  deleteCollectionConfirmBtn: HTMLButtonElement;
   addBadgeInput: HTMLInputElement;
   addBadgeConfirmBtn: HTMLButtonElement;
+  importTextInput: HTMLTextAreaElement;
+  importFileInput: HTMLInputElement;
+  importChooseFilesBtn: HTMLButtonElement;
+  importClearFilesBtn: HTMLButtonElement;
+  importDropZone: HTMLDivElement;
+  importSelectedFiles: HTMLDivElement;
+  importSelectedFilesEmpty: HTMLParagraphElement;
+  importSummary: HTMLParagraphElement;
+  importConfirmBtn: HTMLButtonElement;
+  shortcutsEditableList: HTMLDivElement;
+  shortcutsFixedList: HTMLDivElement;
+  shortcutsCaptureHint: HTMLParagraphElement;
+  shortcutsResetAllBtn: HTMLButtonElement;
 
   // Settings - Capture
   clipboardMonitoringCheckbox: HTMLInputElement;
@@ -78,13 +128,28 @@ export interface ScribeDom {
   embeddingModelInput: HTMLInputElement;
   refreshEmbeddingModelsBtn: HTMLButtonElement;
   embeddingModelHint: HTMLParagraphElement;
+  reembedAllBtn: HTMLButtonElement;
 
   // Settings - Enrichment
-  enrichmentEnabledCheckbox: HTMLInputElement;
+  enrichmentSummaryEnabledCheckbox: HTMLInputElement;
+  enrichmentTaggingEnabledCheckbox: HTMLInputElement;
   enrichmentConfig: HTMLDivElement;
   enrichmentUnifiedModelSelect: HTMLSelectElement;
   refreshEnrichmentModelsBtn: HTMLButtonElement;
   enrichmentModelHint: HTMLParagraphElement;
+  retagAllEnrichmentBtn: HTMLButtonElement;
+
+  // Settings - Ranking
+  shortKeywordWeightInput: HTMLInputElement;
+  shortSemanticWeightInput: HTMLInputElement;
+  mediumKeywordWeightInput: HTMLInputElement;
+  mediumSemanticWeightInput: HTMLInputElement;
+  longKeywordWeightInput: HTMLInputElement;
+  longSemanticWeightInput: HTMLInputElement;
+  semanticRelevanceThresholdInput: HTMLInputElement;
+  recencyBoostMaxInput: HTMLInputElement;
+  rrfKInput: HTMLInputElement;
+  resetRankingBtn: HTMLButtonElement;
 
   // Settings - Debug
   debugLoggingCheckbox: HTMLInputElement;
@@ -97,6 +162,10 @@ export interface ScribeDom {
   trufflehogPathHint: HTMLParagraphElement;
   trufflehogStatus: HTMLSpanElement;
   testTrufflehogBtn: HTMLButtonElement;
+
+  // Settings - Secret Masker
+  secretMaskerSettingsModal: HTMLElement;
+  secretMaskerEnabledCheckbox: HTMLInputElement;
 }
 
 export function createDom(): ScribeDom {
@@ -105,29 +174,40 @@ export function createDom(): ScribeDom {
     toggleSidebarNav: byId("toggle-sidebar-nav"),
     toggleSidebarNavLabel: byId("toggle-sidebar-nav-label"),
     appSidebar: byId("app-sidebar"),
-    showOverlayBtn: byId("show-overlay-btn"),
-    showOverlayStatusBtn: byId("show-overlay-status-btn"),
+    sidebarNav: byId("sidebar-nav"),
+    collectionsNav: byId("collections-nav"),
+    newCollectionBtn: byId("new-collection-btn"),
 
     // Clipboard
     clipboardSearchInput: byId("clipboard-search-input"),
     clipboardSearchClearBtn: byId("clipboard-search-clear-btn"),
+    clipboardBadgeFilterBtn: byId("clipboard-badge-filter-btn"),
     clipboardList: byId("clipboard-list"),
     clipboardEmpty: byId("clipboard-empty"),
     clipboardDetail: byId("clipboard-detail"),
     clipboardDetailContent: byId("clipboard-detail-content"),
     clipboardDetailSecretActions: byId("clipboard-detail-secret-actions"),
     clipboardDetailMeta: byId("clipboard-detail-meta"),
+    clipboardDetailRelated: byId("clipboard-detail-related"),
+    clipboardDetailDebug: byId("clipboard-detail-debug"),
     clipboardDetailClose: byId("clipboard-detail-close"),
     clipboardDetailDelete: byId("clipboard-detail-delete"),
     clipboardDetailPlaceholder: byId("clipboard-detail-placeholder"),
+    clipboardStatusBar: byId("clipboard-status-bar"),
     clipboardStatusLeft: byId("clipboard-status-left"),
+    clipboardStatusMeta: byId("clipboard-status-meta"),
 
     // Notes
     searchInput: byId("search-input"),
     searchClearBtn: byId("search-clear-btn"),
+    notesBadgeFilterBtn: byId("notes-badge-filter-btn"),
     addNoteBtn: byId("add-note-btn"),
+    importBtn: byId("import-btn"),
     quickAddForm: byId("quick-add-form"),
     quickAddInput: byId("quick-add-input"),
+    quickAddBadgesInput: byId("quick-add-badges-input"),
+    quickAddBadgeSuggestions: byId("quick-add-badge-suggestions"),
+    quickAddBadgeColors: byId("quick-add-badge-colors"),
     quickAddSaveBtn: byId("quick-add-save-btn"),
     quickAddCancelBtn: byId("quick-add-cancel-btn"),
     notesList: byId("notes-list"),
@@ -136,21 +216,62 @@ export function createDom(): ScribeDom {
     noteDetailContent: byId("note-detail-content"),
     noteDetailSecretActions: byId("note-detail-secret-actions"),
     noteDetailMeta: byId("note-detail-meta"),
+    noteDetailRelated: byId("note-detail-related"),
+    noteDetailDebug: byId("note-detail-debug"),
     noteDetailClose: byId("note-detail-close"),
     noteDetailDelete: byId("note-detail-delete"),
     noteDetailPlaceholder: byId("note-detail-placeholder"),
+    notesStatusBar: byId("notes-status-bar"),
     notesStatusLeft: byId("notes-status-left"),
+    notesStatusMeta: byId("notes-status-meta"),
 
     // Modals (backdrops)
     captureSettingsModal: byId("capture-settings-modal"),
+    shortcutsSettingsModal: byId("shortcuts-settings-modal"),
     providersSettingsModal: byId("providers-settings-modal"),
     embeddingsSettingsModal: byId("embeddings-settings-modal"),
     enrichmentSettingsModal: byId("enrichment-settings-modal"),
+    rankingSettingsModal: byId("ranking-settings-modal"),
     debugSettingsModal: byId("debug-settings-modal"),
     aboutModal: byId("about-modal"),
     addBadgeModal: byId("add-badge-modal"),
+    importModal: byId("import-modal"),
+    createCollectionModal: byId("create-collection-modal"),
+    createCollectionInput: byId("create-collection-input"),
+    createCollectionTypeStandard: byId("create-collection-type-standard"),
+    createCollectionTypeChecklist: byId("create-collection-type-checklist"),
+    createCollectionTypeFilter: byId("create-collection-type-filter"),
+    createCollectionTypeHint: byId("create-collection-type-hint"),
+    createCollectionIconPreview: byId("create-collection-icon-preview"),
+    createCollectionIconPreviewLabel: byId(
+      "create-collection-icon-preview-label",
+    ),
+    createCollectionIconSearchInput: byId("create-collection-icon-search-input"),
+    createCollectionIconOptions: byId("create-collection-icon-options"),
+    createCollectionIconHint: byId("create-collection-icon-hint"),
+    createCollectionConfirmBtn: byId("create-collection-confirm-btn"),
+    renameCollectionModal: byId("rename-collection-modal"),
+    renameCollectionInput: byId("rename-collection-input"),
+    renameCollectionConfirmBtn: byId("rename-collection-confirm-btn"),
+    deleteCollectionModal: byId("delete-collection-modal"),
+    deleteCollectionMessage: byId("delete-collection-message"),
+    deleteCollectionDestinationSelect: byId("delete-collection-destination-select"),
+    deleteCollectionConfirmBtn: byId("delete-collection-confirm-btn"),
     addBadgeInput: byId("add-badge-input"),
     addBadgeConfirmBtn: byId("add-badge-confirm-btn"),
+    importTextInput: byId("import-text-input"),
+    importFileInput: byId("import-file-input"),
+    importChooseFilesBtn: byId("import-choose-files-btn"),
+    importClearFilesBtn: byId("import-clear-files-btn"),
+    importDropZone: byId("import-drop-zone"),
+    importSelectedFiles: byId("import-selected-files"),
+    importSelectedFilesEmpty: byId("import-selected-files-empty"),
+    importSummary: byId("import-summary"),
+    importConfirmBtn: byId("import-confirm-btn"),
+    shortcutsEditableList: byId("shortcuts-editable-list"),
+    shortcutsFixedList: byId("shortcuts-fixed-list"),
+    shortcutsCaptureHint: byId("shortcuts-capture-hint"),
+    shortcutsResetAllBtn: byId("shortcuts-reset-all-btn"),
 
     // Settings - Capture
     clipboardMonitoringCheckbox: byId("clipboard-monitoring-checkbox"),
@@ -174,13 +295,28 @@ export function createDom(): ScribeDom {
     embeddingModelInput: byId("embedding-model-input"),
     refreshEmbeddingModelsBtn: byId("refresh-embedding-models-btn"),
     embeddingModelHint: byId("embedding-model-hint"),
+    reembedAllBtn: byId("reembed-all-btn"),
 
     // Settings - Enrichment
-    enrichmentEnabledCheckbox: byId("enrichment-enabled-checkbox"),
+    enrichmentSummaryEnabledCheckbox: byId("enrichment-summary-enabled-checkbox"),
+    enrichmentTaggingEnabledCheckbox: byId("enrichment-tagging-enabled-checkbox"),
     enrichmentConfig: byId("enrichment-config"),
     enrichmentUnifiedModelSelect: byId("enrichment-unified-model-select"),
     refreshEnrichmentModelsBtn: byId("refresh-enrichment-models-btn"),
     enrichmentModelHint: byId("enrichment-model-hint"),
+    retagAllEnrichmentBtn: byId("retag-all-enrichment-btn"),
+
+    // Settings - Ranking
+    shortKeywordWeightInput: byId("short-keyword-weight-input"),
+    shortSemanticWeightInput: byId("short-semantic-weight-input"),
+    mediumKeywordWeightInput: byId("medium-keyword-weight-input"),
+    mediumSemanticWeightInput: byId("medium-semantic-weight-input"),
+    longKeywordWeightInput: byId("long-keyword-weight-input"),
+    longSemanticWeightInput: byId("long-semantic-weight-input"),
+    semanticRelevanceThresholdInput: byId("semantic-relevance-threshold-input"),
+    recencyBoostMaxInput: byId("recency-boost-max-input"),
+    rrfKInput: byId("rrf-k-input"),
+    resetRankingBtn: byId("reset-ranking-btn"),
 
     // Settings - Debug
     debugLoggingCheckbox: byId("debug-logging-checkbox"),
@@ -193,5 +329,9 @@ export function createDom(): ScribeDom {
     trufflehogPathHint: byId("trufflehog-path-hint"),
     trufflehogStatus: byId("trufflehog-status"),
     testTrufflehogBtn: byId("test-trufflehog-btn"),
+
+    // Settings - Secret Masker
+    secretMaskerSettingsModal: byId("secret-masker-settings-modal"),
+    secretMaskerEnabledCheckbox: byId("secret-masker-enabled-checkbox"),
   };
 }

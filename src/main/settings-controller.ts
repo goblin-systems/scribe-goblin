@@ -1,5 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { ScribeDom } from "./dom";
 import type { Settings, EmbeddingProvider, EnrichmentProvider } from "../settings";
+import { getDefaultRankingSettings } from "../settings";
 import { saveSettings } from "../settings";
 
 export function populateSettingsUI(dom: ScribeDom, settings: Settings): void {
@@ -14,8 +16,12 @@ export function populateSettingsUI(dom: ScribeDom, settings: Settings): void {
   updateEmbeddingModelOptions(dom, settings);
 
   // Enrichment section
-  dom.enrichmentEnabledCheckbox.checked = settings.enrichmentEnabled;
+  dom.enrichmentSummaryEnabledCheckbox.checked = settings.enrichmentSummaryEnabled;
+  dom.enrichmentTaggingEnabledCheckbox.checked = settings.enrichmentTaggingEnabled;
   updateEnrichmentModelOptions(dom, settings);
+
+  // Ranking section
+  populateRankingSettingsUI(dom, settings);
 
   // Debug section
   dom.debugLoggingCheckbox.checked = settings.debugLoggingEnabled;
@@ -23,9 +29,36 @@ export function populateSettingsUI(dom: ScribeDom, settings: Settings): void {
   // TruffleHog
   dom.trufflehogPathInput.value = settings.trufflehogPath;
 
+  // Secret Masker
+  dom.secretMaskerEnabledCheckbox.checked = settings.secretMaskerEnabled;
+
   updateProviderSetupSections(dom);
   updateEmbeddingVisibility(dom, settings.embeddingProvider);
-  updateEnrichmentVisibility(dom, settings.enrichmentEnabled);
+  updateEnrichmentVisibility(
+    dom,
+    settings.enrichmentSummaryEnabled || settings.enrichmentTaggingEnabled,
+  );
+}
+
+export function populateRankingSettingsUI(dom: ScribeDom, settings: Pick<Settings, "ranking">): void {
+  dom.shortKeywordWeightInput.value = String(settings.ranking.shortKeywordWeight);
+  dom.shortSemanticWeightInput.value = String(settings.ranking.shortSemanticWeight);
+  dom.mediumKeywordWeightInput.value = String(settings.ranking.mediumKeywordWeight);
+  dom.mediumSemanticWeightInput.value = String(settings.ranking.mediumSemanticWeight);
+  dom.longKeywordWeightInput.value = String(settings.ranking.longKeywordWeight);
+  dom.longSemanticWeightInput.value = String(settings.ranking.longSemanticWeight);
+  dom.semanticRelevanceThresholdInput.value = String(settings.ranking.semanticRelevanceThreshold);
+  dom.recencyBoostMaxInput.value = String(settings.ranking.recencyBoostMax);
+  dom.rrfKInput.value = String(settings.ranking.rrfK);
+}
+
+export function resetRankingSettingsUI(dom: ScribeDom): void {
+  populateRankingSettingsUI(dom, { ranking: getDefaultRankingSettings() });
+}
+
+function readNumberInput(input: HTMLInputElement, fallback: number): number {
+  const value = Number(input.value);
+  return Number.isFinite(value) ? value : fallback;
 }
 export function updateProviderSetupSections(dom: ScribeDom): void {
   const provider = dom.providerSetupSelect.value;
@@ -129,6 +162,16 @@ export function updateEnrichmentModelOptions(dom: ScribeDom, settings: Settings)
   if (settings.enrichmentProvider === "none") noneOpt.selected = true;
   select.appendChild(noneOpt);
 
+  // Local Qwen
+  const localGroup = document.createElement("optgroup");
+  localGroup.label = "Local Inference";
+  const qwenOpt = document.createElement("option");
+  qwenOpt.value = "local-qwen|qwen2.5-0.5b-instruct";
+  qwenOpt.textContent = "Qwen2.5-0.5B (Built-in, offline)";
+  if (settings.enrichmentProvider === "local-qwen") qwenOpt.selected = true;
+  localGroup.appendChild(qwenOpt);
+  select.appendChild(localGroup);
+
   // OpenAI
   const openaiGroup = document.createElement("optgroup");
   openaiGroup.label = "OpenAI";
@@ -162,7 +205,9 @@ export function updateEnrichmentModelOptions(dom: ScribeDom, settings: Settings)
   } else {
     dom.enrichmentModelHint.textContent = "Models discovered and cached.";
   }
-  dom.refreshEnrichmentModelsBtn.hidden = settings.enrichmentProvider === "none";
+  dom.refreshEnrichmentModelsBtn.hidden =
+    settings.enrichmentProvider === "none" ||
+    settings.enrichmentProvider === "local-qwen";
 }
 
 function getFallbackModels(provider: "openai" | "gemini", type: "embedding" | "chat"): string[] {
@@ -202,11 +247,24 @@ export function readSettingsFromForm(dom: ScribeDom, current: Settings): Setting
     },
     embeddingProvider,
     embeddingModel: embeddingProvider === "ollama" ? dom.embeddingModelInput.value.trim() : (embeddingModelValue || ""),
-    enrichmentEnabled: dom.enrichmentEnabledCheckbox.checked,
+    ranking: {
+      shortKeywordWeight: readNumberInput(dom.shortKeywordWeightInput, current.ranking.shortKeywordWeight),
+      shortSemanticWeight: readNumberInput(dom.shortSemanticWeightInput, current.ranking.shortSemanticWeight),
+      mediumKeywordWeight: readNumberInput(dom.mediumKeywordWeightInput, current.ranking.mediumKeywordWeight),
+      mediumSemanticWeight: readNumberInput(dom.mediumSemanticWeightInput, current.ranking.mediumSemanticWeight),
+      longKeywordWeight: readNumberInput(dom.longKeywordWeightInput, current.ranking.longKeywordWeight),
+      longSemanticWeight: readNumberInput(dom.longSemanticWeightInput, current.ranking.longSemanticWeight),
+      semanticRelevanceThreshold: readNumberInput(dom.semanticRelevanceThresholdInput, current.ranking.semanticRelevanceThreshold),
+      recencyBoostMax: readNumberInput(dom.recencyBoostMaxInput, current.ranking.recencyBoostMax),
+      rrfK: readNumberInput(dom.rrfKInput, current.ranking.rrfK),
+    },
+    enrichmentSummaryEnabled: dom.enrichmentSummaryEnabledCheckbox.checked,
+    enrichmentTaggingEnabled: dom.enrichmentTaggingEnabledCheckbox.checked,
     enrichmentProvider,
     enrichmentModel: enrichmentModelValue || "",
     debugLoggingEnabled: dom.debugLoggingCheckbox.checked,
     trufflehogPath: dom.trufflehogPathInput.value.trim(),
+    secretMaskerEnabled: dom.secretMaskerEnabledCheckbox.checked,
   };
 }
 
@@ -236,4 +294,27 @@ export function cancelAutosave(): void {
     clearTimeout(autosaveTimer);
     autosaveTimer = null;
   }
+}
+
+export function wireReembedAllButton(dom: ScribeDom): void {
+  dom.reembedAllBtn.addEventListener("click", async () => {
+    const btn = dom.reembedAllBtn;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Regenerating...";
+
+    try {
+      await invoke("reembed_all_entries");
+      btn.textContent = "Done!";
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }, 2000);
+    } catch (err) {
+      btn.textContent = originalText;
+      btn.disabled = false;
+      console.error("reembed_all_entries failed:", err);
+      dom.embeddingModelHint.textContent = `Re-embed failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  });
 }
