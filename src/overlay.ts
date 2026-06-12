@@ -6,7 +6,7 @@ import {
   type ContextMenuItem,
 } from "@goblin-systems/goblin-design-system";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
+import { cursorPosition, getCurrentWindow, LogicalPosition } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
 import { load, type Store } from "@tauri-apps/plugin-store";
 import {
@@ -577,14 +577,23 @@ window.onkeyup = (e) => {
 
 // Listen for show-overlay event
 listen("show-overlay", async (event: { payload?: { x?: number; y?: number } }) => {
-  const { x, y } = event.payload ?? {};
   const appWindow = getCurrentWindow();
   await applyOverlayTheme();
   
-  // Center roughly on cursor when coordinates are available
-  if (typeof x === "number" && typeof y === "number") {
-    await appWindow.setPosition(new LogicalPosition(x - 200, y - 20));
+  try {
+    const pos = await cursorPosition();
+    const factor = await appWindow.scaleFactor();
+    const logical = pos.toLogical(factor);
+    await appWindow.setPosition(new LogicalPosition(logical.x - 200, logical.y - 20));
+  } catch (err) {
+    console.error("Failed to get cursor position natively:", err);
+    // Center roughly on cursor when coordinates are available (fallback)
+    const { x, y } = event.payload ?? {};
+    if (typeof x === "number" && typeof y === "number") {
+      await appWindow.setPosition(new LogicalPosition(x - 200, y - 20));
+    }
   }
+
   await appWindow.show();
   await appWindow.setFocus();
 
