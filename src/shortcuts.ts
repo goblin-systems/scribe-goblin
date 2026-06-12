@@ -121,7 +121,7 @@ const RESERVED_SHORTCUTS: ShortcutDefinition[] = [
     title: "Delete selected item",
     description: "Delete the selected clipboard item or note selection.",
     scope: "main",
-    defaultBinding: "Delete",
+    defaultBinding: isMacPlatform() ? "Primary+Backspace" : "Delete",
     editable: false,
   },
   {
@@ -225,7 +225,7 @@ const RESERVED_SHORTCUTS: ShortcutDefinition[] = [
     title: "Overlay delete selected",
     description: "Delete the selected overlay entry.",
     scope: "overlay",
-    defaultBinding: "Delete",
+    defaultBinding: isMacPlatform() ? "Primary+Backspace" : "Delete",
     editable: false,
   },
   {
@@ -531,6 +531,8 @@ function normalizeToken(token: string): string | null {
     case "del":
     case "delete":
       return "Delete";
+    case "backspace":
+      return "Backspace";
     case "enter":
     case "return":
       return "Enter";
