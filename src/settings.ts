@@ -53,6 +53,9 @@ export interface Settings {
   // Embeddings
   embeddingProvider: EmbeddingProvider;
   embeddingModel: string;
+  /** Absolute path of the local ONNX embedding model used when
+   *  embeddingProvider is "local". Empty string = legacy bundled location. */
+  localEmbeddingModelPath: string;
 
   // Ranking
   ranking: RankingSettings;
@@ -62,6 +65,9 @@ export interface Settings {
   enrichmentTaggingEnabled: boolean;
   enrichmentProvider: EnrichmentProvider;
   enrichmentModel: string;
+  /** Absolute path of the local GGUF used when enrichmentProvider is "local-qwen".
+   *  Empty string means "use the legacy bundled location". */
+  localLlmModelPath: string;
 
   // Debug
   debugLoggingEnabled: boolean;
@@ -71,6 +77,9 @@ export interface Settings {
 
   // Secret masker ML model
   secretMaskerEnabled: boolean;
+  /** Absolute path of the secret-masker ONNX model. Empty string = legacy
+   *  bundled location. */
+  secretMaskerModelPath: string;
 
   // Editable shortcut overrides
   shortcutOverrides: ShortcutOverrides;
@@ -93,6 +102,7 @@ const DEFAULTS: Settings = {
   },
   embeddingProvider: "none",
   embeddingModel: "text-embedding-3-small",
+  localEmbeddingModelPath: "",
   ranking: {
     shortKeywordWeight: 1.35,
     shortSemanticWeight: 2,
@@ -108,9 +118,11 @@ const DEFAULTS: Settings = {
   enrichmentTaggingEnabled: true,
   enrichmentProvider: "local-qwen",
   enrichmentModel: LOCAL_QWEN_MODEL_ID,
+  localLlmModelPath: "",
   debugLoggingEnabled: false,
   trufflehogPath: "",
   secretMaskerEnabled: true,
+  secretMaskerModelPath: "",
   shortcutOverrides: {},
 };
 
@@ -155,6 +167,7 @@ export async function loadSettings(): Promise<Settings> {
 
   settings.embeddingProvider = (await read<EmbeddingProvider>("embeddingProvider")) ?? settings.embeddingProvider;
   settings.embeddingModel = (await read<string>("embeddingModel")) ?? (await read<string>("embeddingOpenAiModel")) ?? settings.embeddingModel;
+  settings.localEmbeddingModelPath = (await read<string>("localEmbeddingModelPath")) ?? settings.localEmbeddingModelPath;
   const ranking = await read<Partial<RankingSettings>>("ranking");
   if (ranking) {
     settings.ranking = { ...settings.ranking, ...ranking };
@@ -171,12 +184,14 @@ export async function loadSettings(): Promise<Settings> {
     settings.enrichmentTaggingEnabled;
   settings.enrichmentProvider = (await read<EnrichmentProvider>("enrichmentProvider")) ?? settings.enrichmentProvider;
   settings.enrichmentModel = (await read<string>("enrichmentModel")) ?? settings.enrichmentModel;
+  settings.localLlmModelPath = (await read<string>("localLlmModelPath")) ?? settings.localLlmModelPath;
 
   settings.debugLoggingEnabled = (await read<boolean>("debugLoggingEnabled")) ?? settings.debugLoggingEnabled;
 
   settings.trufflehogPath = (await read<string>("trufflehogPath")) ?? settings.trufflehogPath;
 
   settings.secretMaskerEnabled = (await read<boolean>("secretMaskerEnabled")) ?? settings.secretMaskerEnabled;
+  settings.secretMaskerModelPath = (await read<string>("secretMaskerModelPath")) ?? settings.secretMaskerModelPath;
 
   settings.shortcutOverrides = sanitizeShortcutOverrides(
     await read<Record<string, unknown>>("shortcutOverrides"),
@@ -191,15 +206,18 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await s.set("providers", settings.providers);
   await s.set("embeddingProvider", settings.embeddingProvider);
   await s.set("embeddingModel", settings.embeddingModel);
+  await s.set("localEmbeddingModelPath", settings.localEmbeddingModelPath);
   await s.set("ranking", settings.ranking);
   await s.set("enrichmentEnabled", settings.enrichmentSummaryEnabled || settings.enrichmentTaggingEnabled);
   await s.set("enrichmentSummaryEnabled", settings.enrichmentSummaryEnabled);
   await s.set("enrichmentTaggingEnabled", settings.enrichmentTaggingEnabled);
   await s.set("enrichmentProvider", settings.enrichmentProvider);
   await s.set("enrichmentModel", settings.enrichmentModel);
+  await s.set("localLlmModelPath", settings.localLlmModelPath);
   await s.set("debugLoggingEnabled", settings.debugLoggingEnabled);
   await s.set("trufflehogPath", settings.trufflehogPath);
   await s.set("secretMaskerEnabled", settings.secretMaskerEnabled);
+  await s.set("secretMaskerModelPath", settings.secretMaskerModelPath);
   await s.set("shortcutOverrides", sanitizeShortcutOverrides(settings.shortcutOverrides));
   await s.save();
 }

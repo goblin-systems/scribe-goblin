@@ -12,6 +12,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# Local inference (candle/mistralrs) is unusably slow unoptimized. Optimize
+# dependencies even in dev builds; the workspace crate itself stays at the
+# default opt-level so incremental rebuilds remain fast.
+[profile.dev.package."*"]
+opt-level = 3
+
 [dependencies]
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-store = "2"
@@ -32,6 +38,21 @@ sqlite-vec = "0.1.9"
 zerocopy = { version = "0.8", features = ["derive"] }
 mistralrs = "0.8.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+# candle (pinned to the same core mistralrs uses) for safetensors token
+# classification — the XLM-RoBERTa secret-masker engine.
+candle-core = "0.10.2"
+candle-nn = "0.10.2"
+candle-transformers = "0.10.2"
+
+[features]
+# Metal (Apple GPU) inference. Requires full Xcode for the Metal shader
+# compiler (`xcrun metal`); Command Line Tools alone are not enough.
+# Build with: cargo tauri dev/build -- --features metal
+metal = ["mistralrs/metal"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Apple Accelerate BLAS for faster CPU inference; needs no extra tooling.
+mistralrs = { version = "0.8.1", features = ["accelerate"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = [

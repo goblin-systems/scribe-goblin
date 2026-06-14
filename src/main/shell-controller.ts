@@ -29,12 +29,13 @@ export interface ShellControllerOptions {
   setSettings: (s: Settings) => void;
   onOpenQuickAdd?: () => void;
   onOpenShortcutsSettings?: () => void;
+  onOpenAiModelsSettings?: () => void;
 }
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 
 export function setupShell(options: ShellControllerOptions) {
-  const { dom, getSettings, setSettings, onOpenQuickAdd, onOpenShortcutsSettings } = options;
+  const { dom, getSettings, setSettings, onOpenQuickAdd, onOpenShortcutsSettings, onOpenAiModelsSettings } = options;
 
   let uiStore: Store | null = null;
 
@@ -68,8 +69,8 @@ export function setupShell(options: ShellControllerOptions) {
   bindModalRejectButtons(dom.providersSettingsModal, "providers-settings");
   bindModalRejectButtons(dom.embeddingsSettingsModal, "embeddings-settings");
   bindModalRejectButtons(dom.enrichmentSettingsModal, "enrichment-settings");
+  bindModalRejectButtons(dom.aiModelsSettingsModal, "ai-models-settings");
   bindModalRejectButtons(dom.rankingSettingsModal, "ranking-settings");
-  bindModalRejectButtons(dom.trufflehogSettingsModal, "trufflehog-settings");
   bindModalRejectButtons(dom.secretMaskerSettingsModal, "secret-masker-settings");
   bindModalRejectButtons(dom.debugSettingsModal, "debug-settings");
   bindModalRejectButtons(dom.aboutModal, "about");
@@ -151,18 +152,19 @@ export function setupShell(options: ShellControllerOptions) {
         openModal({ backdrop: dom.enrichmentSettingsModal });
         break;
 
+      case "open-ai-models-settings":
+        debugLog("nav: opening local AI models modal");
+        openModal({ backdrop: dom.aiModelsSettingsModal });
+        onOpenAiModelsSettings?.();
+        break;
+
       case "open-ranking-settings":
         debugLog("nav: opening ranking settings modal");
         openModal({ backdrop: dom.rankingSettingsModal });
         break;
 
-      case "open-trufflehog-settings":
-        debugLog("nav: opening trufflehog settings modal");
-        openModal({ backdrop: dom.trufflehogSettingsModal });
-        break;
-
       case "open-secret-masker-settings":
-        debugLog("nav: opening secret masker settings modal");
+        debugLog("nav: opening secret detection settings modal");
         openModal({ backdrop: dom.secretMaskerSettingsModal });
         break;
 

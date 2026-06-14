@@ -1,71 +1,76 @@
 use crate::debug_log::{write_debug_log_internal, DebugLogState};
-use mistralrs::{GgufModelBuilder, Model, RequestBuilder, Response, StopTokens, TextMessageRole};
+use mistralrs::{
+    GgufModelBuilder, IsqType, Model, RequestBuilder, Response, StopTokens, TextMessageRole,
+    TextModelBuilder,
+};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, State};
-use tokio::sync::{Mutex as AsyncMutex, OnceCell};
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::timeout;
 
 const QWEN_MODEL_DIR: &str = "qwen-25-05b";
 const QWEN_MODEL_FILE: &str = "qwen2.5-0.5b-instruct-q4_0.gguf";
-const QWEN_CHAT_TEMPLATE_FILE: &str = "chat_template.jinja";
-const QWEN_MODEL_ID: &str = "Qwen2.5-0.5B-Instruct GGUF q4_0";
 const DEFAULT_MAX_TOKENS: usize = 40;
 const MAX_ALLOWED_TOKENS: usize = 96;
 const INFERENCE_TIMEOUT: Duration = Duration::from_secs(35);
 
+struct LoadedLlm {
+    path: PathBuf,
+    model: Model,
+}
+
 pub struct QwenTaggerState {
-    model: OnceCell<Model>,
-    model_dir: PathBuf,
-    inference_lock: AsyncMutex<()>,
+    default_model_path: PathBuf,
+    inner: AsyncMutex<Option<LoadedLlm>>,
+    loaded_path: StdMutex<Option<PathBuf>>,
 }
 
 impl QwenTaggerState {
-    pub fn new(model_dir: PathBuf) -> Self {
+    pub fn new(default_model_path: PathBuf) -> Self {
         Self {
-            model: OnceCell::new(),
-            model_dir,
-            inference_lock: AsyncMutex::new(()),
+            default_model_path,
+            inner: AsyncMutex::new(None),
+            loaded_path: StdMutex::new(None),
         }
     }
 
-    async fn ensure_loaded(&self) -> Result<&Model, String> {
-        if !self.model_path().exists() {
-            return Err(format!(
-                "Qwen model file not found at {}",
-                self.model_path().display()
-            ));
-        }
+    pub fn default_model_path(&self) -> PathBuf {
+        self.default_model_path.clone()
+    }
 
-        let model_dir = self.model_dir.to_string_lossy().to_string();
-        self.model
-            .get_or_try_init(|| async {
-                GgufModelBuilder::new(model_dir, vec![QWEN_MODEL_FILE])
-                    .with_force_cpu()
-                    .build()
-                    .await
-                    .map_err(|e| format!("Failed to load Qwen model: {e}"))
-            })
-            .await
+    /// A non-empty explicit path wins; otherwise fall back to the legacy
+    /// bundled location.
+    pub fn resolve_model_path(&self, requested: Option<&str>) -> PathBuf {
+        match requested {
+            Some(path) if !path.trim().is_empty() => PathBuf::from(path),
+            _ => self.default_model_path(),
+        }
     }
 
     pub fn is_loaded(&self) -> bool {
-        self.model.initialized()
+        self.loaded_path
+            .lock()
+            .map(|p| p.is_some())
+            .unwrap_or(false)
     }
 
-    pub fn model_path(&self) -> PathBuf {
-        self.model_dir.join(QWEN_MODEL_FILE)
+    pub fn loaded_model_path(&self) -> Option<PathBuf> {
+        self.loaded_path.lock().ok().and_then(|p| p.clone())
     }
 
-    pub fn chat_template_path(&self) -> PathBuf {
-        self.model_dir.join(QWEN_CHAT_TEMPLATE_FILE)
+    fn set_loaded_path(&self, path: Option<PathBuf>) {
+        if let Ok(mut guard) = self.loaded_path.lock() {
+            *guard = path;
+        }
     }
 }
 
 impl Default for QwenTaggerState {
     fn default() -> Self {
-        Self::new(default_model_dir())
+        Self::new(default_model_dir().join(QWEN_MODEL_FILE))
     }
 }
 
@@ -91,6 +96,65 @@ fn default_model_dir() -> PathBuf {
         .join(QWEN_MODEL_DIR)
 }
 
+fn model_id_for_path(path: &Path) -> String {
+    if path.is_dir() {
+        // HF cache snapshot dirs look like .../models--Org--Name/snapshots/<rev>;
+        // recover the human-readable repo name when present.
+        for component in path.components().rev() {
+            let part = component.as_os_str().to_string_lossy();
+            if let Some(repo) = part.strip_prefix("models--") {
+                return repo.replace("--", "/");
+            }
+        }
+        return path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string());
+    }
+    path.file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.to_string_lossy().to_string())
+}
+
+async fn load_model(path: &Path) -> Result<Model, String> {
+    let is_gguf = path.is_file()
+        && path
+            .extension()
+            .map(|ext| ext.eq_ignore_ascii_case("gguf"))
+            .unwrap_or(false);
+
+    if is_gguf {
+        let dir = path
+            .parent()
+            .ok_or_else(|| format!("Model path has no parent directory: {}", path.display()))?
+            .to_string_lossy()
+            .to_string();
+        let file = path
+            .file_name()
+            .ok_or_else(|| format!("Model path has no file name: {}", path.display()))?
+            .to_string_lossy()
+            .to_string();
+
+        GgufModelBuilder::new(dir, vec![file])
+            .build()
+            .await
+            .map_err(|e| format!("Failed to load local GGUF model: {e}"))
+    } else if path.is_dir() {
+        // Hugging Face-format directory (config.json + safetensors). Quantize
+        // in place to Q4K so larger models fit in memory.
+        TextModelBuilder::new(path.to_string_lossy().to_string())
+            .with_isq(IsqType::Q4K)
+            .build()
+            .await
+            .map_err(|e| format!("Failed to load local safetensors model: {e}"))
+    } else {
+        Err(format!(
+            "Unsupported model path (expected a .gguf file or a Hugging Face model directory): {}",
+            path.display()
+        ))
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct QwenTagResult {
     pub raw_response: String,
@@ -105,8 +169,13 @@ pub struct QwenStatus {
     pub model_id: String,
     pub model_path: String,
     pub model_exists: bool,
-    pub chat_template_path: String,
-    pub chat_template_exists: bool,
+}
+
+fn missing_model_error(path: &Path) -> String {
+    format!(
+        "Local LLM model file not found at {}. Open Settings → Local AI Models to download one.",
+        path.display()
+    )
 }
 
 #[tauri::command]
@@ -114,6 +183,7 @@ pub async fn qwen_generate_tags(
     text: String,
     system_prompt: String,
     max_tokens: Option<usize>,
+    model_path: Option<String>,
     app: AppHandle,
     state: State<'_, QwenTaggerState>,
     debug_state: State<'_, DebugLogState>,
@@ -125,6 +195,14 @@ pub async fn qwen_generate_tags(
         return Err("System prompt is empty".to_string());
     }
 
+    let path = state.resolve_model_path(model_path.as_deref());
+    if !path.exists() {
+        let err = missing_model_error(&path);
+        write_debug_log_internal(&app, &debug_state, "ERROR", &err);
+        return Err(err);
+    }
+    let model_id = model_id_for_path(&path);
+
     let max_tokens = max_tokens
         .unwrap_or(DEFAULT_MAX_TOKENS)
         .clamp(1, MAX_ALLOWED_TOKENS);
@@ -133,36 +211,51 @@ pub async fn qwen_generate_tags(
         &debug_state,
         "INFO",
         &format!(
-            "qwen_generate_tags requested: text_chars={}, system_prompt_chars={}, max_tokens={}, loaded={}, model_path={}, model_exists={}, chat_template_path={}, chat_template_exists={}",
+            "qwen_generate_tags requested: text_chars={}, system_prompt_chars={}, max_tokens={}, loaded={}, model_path={}",
             text.len(),
             system_prompt.len(),
             max_tokens,
             state.is_loaded(),
-            state.model_path().display(),
-            state.model_path().exists(),
-            state.chat_template_path().display(),
-            state.chat_template_path().exists(),
+            path.display(),
         ),
     );
 
-    let _guard = state.inference_lock.lock().await;
+    // The model lock both serializes inference and guards (re)loading.
+    let mut guard = state.inner.lock().await;
     let load_start = Instant::now();
-    write_debug_log_internal(
-        &app,
-        &debug_state,
-        "INFO",
-        "qwen_generate_tags acquired local inference lock",
-    );
 
-    let model = state.ensure_loaded().await.map_err(|err| {
-        write_debug_log_internal(
-            &app,
-            &debug_state,
-            "ERROR",
-            &format!("qwen_generate_tags load failed: {err}"),
-        );
-        err
-    })?;
+    let needs_load = guard.as_ref().map(|llm| llm.path != path).unwrap_or(true);
+    if needs_load {
+        // Drop any previously loaded model first so we never hold two in memory.
+        if guard.is_some() {
+            write_debug_log_internal(
+                &app,
+                &debug_state,
+                "INFO",
+                "qwen_generate_tags unloading previous model before switch",
+            );
+            *guard = None;
+            state.set_loaded_path(None);
+        }
+        let model = load_model(&path).await.map_err(|err| {
+            write_debug_log_internal(
+                &app,
+                &debug_state,
+                "ERROR",
+                &format!("qwen_generate_tags load failed: {err}"),
+            );
+            err
+        })?;
+        *guard = Some(LoadedLlm {
+            path: path.clone(),
+            model,
+        });
+        state.set_loaded_path(Some(path.clone()));
+    }
+    let model = &guard
+        .as_ref()
+        .expect("model loaded above")
+        .model;
     write_debug_log_internal(
         &app,
         &debug_state,
@@ -323,7 +416,7 @@ pub async fn qwen_generate_tags(
 
     Ok(QwenTagResult {
         raw_response: content,
-        model_id: QWEN_MODEL_ID.to_string(),
+        model_id,
         prompt_tps,
         completion_tps,
     })
@@ -386,20 +479,47 @@ fn extract_complete_json_object(value: &str) -> Option<String> {
 }
 
 #[tauri::command]
-pub async fn qwen_status(state: State<'_, QwenTaggerState>) -> Result<QwenStatus, String> {
+pub async fn qwen_status(
+    model_path: Option<String>,
+    state: State<'_, QwenTaggerState>,
+) -> Result<QwenStatus, String> {
+    let path = state.resolve_model_path(model_path.as_deref());
+    let loaded = state
+        .loaded_model_path()
+        .map(|loaded| loaded == path)
+        .unwrap_or(false);
     Ok(QwenStatus {
-        loaded: state.is_loaded(),
-        model_id: QWEN_MODEL_ID.to_string(),
-        model_path: state.model_path().to_string_lossy().to_string(),
-        model_exists: state.model_path().exists(),
-        chat_template_path: state.chat_template_path().to_string_lossy().to_string(),
-        chat_template_exists: state.chat_template_path().exists(),
+        loaded,
+        model_id: model_id_for_path(&path),
+        model_path: path.to_string_lossy().to_string(),
+        model_exists: path.exists(),
     })
 }
 
 #[tauri::command]
-pub async fn qwen_prefetch(state: State<'_, QwenTaggerState>) -> Result<(), String> {
-    state.ensure_loaded().await.map(|_| ())
+pub async fn qwen_prefetch(
+    model_path: Option<String>,
+    state: State<'_, QwenTaggerState>,
+) -> Result<(), String> {
+    let path = state.resolve_model_path(model_path.as_deref());
+    if !path.exists() {
+        return Err(missing_model_error(&path));
+    }
+    let mut guard = state.inner.lock().await;
+    let needs_load = guard.as_ref().map(|llm| llm.path != path).unwrap_or(true);
+    if needs_load {
+        if guard.is_some() {
+            *guard = None;
+            state.set_loaded_path(None);
+        }
+        let model = load_model(&path).await?;
+        *guard = Some(LoadedLlm {
+            path: path.clone(),
+            model,
+        });
+        state.set_loaded_path(Some(path));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -414,29 +534,36 @@ mod tests {
     }
 
     #[test]
-    fn model_id_is_stable() {
-        assert!(QWEN_MODEL_ID.contains("Qwen2.5-0.5B-Instruct"));
-        assert!(QWEN_MODEL_ID.contains("q4_0"));
-    }
-
-    #[test]
     fn default_model_path_uses_bundled_filename() {
         let state = QwenTaggerState::default();
         assert_eq!(
-            state.model_path().file_name().and_then(|name| name.to_str()),
+            state
+                .default_model_path()
+                .file_name()
+                .and_then(|name| name.to_str()),
             Some(QWEN_MODEL_FILE),
         );
     }
 
     #[test]
-    fn default_chat_template_path_uses_bundled_filename() {
+    fn resolve_model_path_prefers_explicit_path() {
         let state = QwenTaggerState::default();
         assert_eq!(
-            state
-                .chat_template_path()
-                .file_name()
-                .and_then(|name| name.to_str()),
-            Some(QWEN_CHAT_TEMPLATE_FILE),
+            state.resolve_model_path(Some("/tmp/custom.gguf")),
+            PathBuf::from("/tmp/custom.gguf"),
+        );
+        assert_eq!(state.resolve_model_path(None), state.default_model_path());
+        assert_eq!(
+            state.resolve_model_path(Some("   ")),
+            state.default_model_path(),
+        );
+    }
+
+    #[test]
+    fn model_id_is_derived_from_filename() {
+        assert_eq!(
+            model_id_for_path(Path::new("/models/qwen2.5-0.5b-instruct-q4_0.gguf")),
+            "qwen2.5-0.5b-instruct-q4_0",
         );
     }
 
@@ -464,21 +591,17 @@ mod tests {
     #[ignore = "requires local Qwen GGUF; run explicitly when changing local inference"]
     async fn qwen_local_inference_completes_under_60s() {
         let state = QwenTaggerState::default();
+        let model_path = state.default_model_path();
         assert!(
-            state.model_path().exists(),
+            model_path.exists(),
             "missing Qwen model at {}",
-            state.model_path().display(),
-        );
-        assert!(
-            state.chat_template_path().exists(),
-            "missing Qwen chat template at {}",
-            state.chat_template_path().display(),
+            model_path.display(),
         );
 
         let started = Instant::now();
         let result = timeout(Duration::from_secs(60), async {
             let load_started = Instant::now();
-            let model = state.ensure_loaded().await?;
+            let model = load_model(&model_path).await?;
             eprintln!(
                 "qwen local test: model loaded in {}ms",
                 load_started.elapsed().as_millis()
@@ -567,211 +690,5 @@ mod tests {
             "local Qwen inference took {:?}",
             started.elapsed(),
         );
-    }
-
-    #[derive(Debug)]
-    struct QwenTiming {
-        stream_open_ms: u128,
-        first_chunk_ms: Option<u128>,
-        finished_ms: u128,
-        complete_json: bool,
-        chunks: usize,
-        chars: usize,
-        response: String,
-    }
-
-    async fn time_qwen_request(
-        model: &Model,
-        label: &str,
-        text: &str,
-        max_tokens: usize,
-    ) -> Result<QwenTiming, String> {
-        let started = Instant::now();
-        let request = RequestBuilder::new()
-            .set_deterministic_sampler()
-            .set_sampler_stop_toks(StopTokens::Seqs(vec!["<|im_end|>".to_string()]))
-            .set_sampler_max_len(max_tokens)
-            .add_message(
-                TextMessageRole::System,
-                "You are a tagging assistant. Given text, respond with JSON only. Format: {\"tags\":[\"tag1\",\"tag2\"]}. Use 2-4 lowercase content tags.",
-            )
-            .add_message(TextMessageRole::User, text);
-
-        let mut stream = model
-            .stream_chat_request(request)
-            .await
-            .map_err(|err| err.to_string())?;
-        let stream_open_ms = started.elapsed().as_millis();
-        eprintln!("{label}: stream opened in {stream_open_ms}ms");
-
-        let mut raw = String::new();
-        let mut chunks = 0usize;
-        let mut first_chunk_ms = None;
-
-        while let Some(response) = stream.next().await {
-            match response {
-                Response::Chunk(chunk) => {
-                    chunks += 1;
-                    if let Some(delta) = chunk
-                        .choices
-                        .first()
-                        .and_then(|choice| choice.delta.content.clone())
-                    {
-                        if first_chunk_ms.is_none() {
-                            first_chunk_ms = Some(started.elapsed().as_millis());
-                            eprintln!(
-                                "{label}: first chunk in {}ms",
-                                first_chunk_ms.unwrap()
-                            );
-                        }
-                        raw.push_str(&delta);
-                        if let Some(json) = extract_complete_json_object(&raw) {
-                            let complete_json_ms = started.elapsed().as_millis();
-                            eprintln!(
-                                "{label}: complete JSON in {complete_json_ms}ms over {chunks} chunks, chars={}, json={json}",
-                                raw.len(),
-                            );
-                            return Ok(QwenTiming {
-                                stream_open_ms,
-                                first_chunk_ms,
-                                finished_ms: complete_json_ms,
-                                complete_json: true,
-                                chunks,
-                                chars: raw.len(),
-                                response: json,
-                            });
-                        }
-                    }
-                }
-                Response::Done(response) => {
-                    if let Some(content) = response
-                        .choices
-                        .first()
-                        .and_then(|choice| choice.message.content.clone())
-                    {
-                        raw.push_str(&content);
-                    }
-                    break;
-                }
-                Response::InternalError(err) => return Err(err.to_string()),
-                Response::ValidationError(err) => return Err(err.to_string()),
-                Response::ModelError(message, _) => return Err(message),
-                other => return Err(format!("unexpected response: {}", response_kind(&other))),
-            }
-        }
-
-        if let Some(json) = extract_complete_json_object(&raw) {
-            Ok(QwenTiming {
-                stream_open_ms,
-                first_chunk_ms,
-                finished_ms: started.elapsed().as_millis(),
-                complete_json: true,
-                chunks,
-                chars: raw.len(),
-                response: json,
-            })
-        } else {
-            let finished_ms = started.elapsed().as_millis();
-            eprintln!(
-                "{label}: stream ended without complete JSON in {finished_ms}ms over {chunks} chunks, chars={}, raw={raw}",
-                raw.len(),
-            );
-            Ok(QwenTiming {
-                stream_open_ms,
-                first_chunk_ms,
-                finished_ms,
-                complete_json: false,
-                chunks,
-                chars: raw.len(),
-                response: raw,
-            })
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "manual local Qwen timing experiment"]
-    async fn qwen_local_inference_timing_experiment() {
-        let state = QwenTaggerState::default();
-        assert!(
-            state.model_path().exists(),
-            "missing Qwen model at {}",
-            state.model_path().display(),
-        );
-
-        let load_started = Instant::now();
-        let model = state.ensure_loaded().await.expect("Qwen model failed to load");
-        eprintln!(
-            "timing: model loaded in {}ms",
-            load_started.elapsed().as_millis()
-        );
-
-        let short_text =
-            "Rust Tauri clipboard app hangs while streaming local Qwen GGUF inference.";
-        let realistic_text = r#"2026-04-27T22:57:30 [INFO] clipboard-capture event received
-2026-04-27T22:57:30 [INFO] clipboard-capture processed successfully
-2026-04-27T22:57:30 [INFO] enrichEntry: provider=local-qwen, model=qwen2.5-0.5b-instruct
-2026-04-27T22:57:34 [INFO] qwen_generate_tags requested: text_chars=1209, system_prompt_chars=537, max_tokens=32, loaded=false
-2026-04-27T22:57:53 [INFO] qwen_generate_tags inference start
-2026-04-27T22:58:32 [WARN] enrichWithLocalQwen: still waiting after 60s
-The application is migrating from MNLI classification to open-ended local language-model tagging. Heuristic tags are split into a separate process and local Qwen is expected to generate JSON tags."#;
-
-        let runs = [
-            ("short-run-1", short_text),
-            ("short-run-2", short_text),
-            ("realistic-run-1", realistic_text),
-            ("realistic-run-2", realistic_text),
-        ];
-
-        for (label, text) in runs {
-            let timing = timeout(
-                Duration::from_secs(240),
-                time_qwen_request(model, label, text, 32),
-            )
-            .await
-            .unwrap_or_else(|_| Err(format!("{label}: exceeded 240s")))
-            .expect("Qwen timing request failed");
-
-            if timing.complete_json {
-                let parsed: Value =
-                    serde_json::from_str(&timing.response).expect("Qwen returned invalid JSON");
-                assert!(
-                    parsed.get("tags").and_then(|tags| tags.as_array()).is_some(),
-                    "{label}: Qwen JSON did not contain tags array: {}",
-                    timing.response
-                );
-            }
-            eprintln!("{label}: summary {timing:?}");
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    #[ignore = "manual local Qwen realistic timing experiment"]
-    async fn qwen_local_realistic_timing_experiment() {
-        let state = QwenTaggerState::default();
-        let load_started = Instant::now();
-        let model = state.ensure_loaded().await.expect("Qwen model failed to load");
-        eprintln!(
-            "realistic timing: model loaded in {}ms",
-            load_started.elapsed().as_millis()
-        );
-
-        let realistic_text = r#"2026-04-27T22:57:30 [INFO] clipboard-capture event received
-2026-04-27T22:57:30 [INFO] clipboard-capture processed successfully
-2026-04-27T22:57:30 [INFO] enrichEntry: provider=local-qwen, model=qwen2.5-0.5b-instruct
-2026-04-27T22:57:34 [INFO] qwen_generate_tags requested: text_chars=1209, system_prompt_chars=537, max_tokens=32, loaded=false
-2026-04-27T22:57:53 [INFO] qwen_generate_tags inference start
-2026-04-27T22:58:32 [WARN] enrichWithLocalQwen: still waiting after 60s
-The application is migrating from MNLI classification to open-ended local language-model tagging. Heuristic tags are split into a separate process and local Qwen is expected to generate JSON tags."#;
-
-        for label in ["realistic-repeat-1", "realistic-repeat-2"] {
-            let timing = timeout(
-                Duration::from_secs(300),
-                time_qwen_request(model, label, realistic_text, 32),
-            )
-            .await
-            .unwrap_or_else(|_| Err(format!("{label}: exceeded 300s")))
-            .expect("Qwen timing request failed");
-            eprintln!("{label}: summary {timing:?}");
-        }
     }
 }

@@ -1173,6 +1173,10 @@ export const invokeMock = vi.fn(async (command: string, args: any) => {
         return results;
       }
 
+      if (command === "build_semantic_graph") {
+        return [];
+      }
+
       if (command === "get_related_entries") {
         const anchor = mockEntries.find((entry) => entry.id === args.entryId);
         if (!anchor) throw new Error(`Entry not found: ${args.entryId}`);
@@ -1708,12 +1712,64 @@ export const invokeMock = vi.fn(async (command: string, args: any) => {
           model_id: "qwen2.5-0.5b-instruct (mock)",
           model_path: "mock-qwen.gguf",
           model_exists: true,
-          chat_template_path: "mock-chat-template.jinja",
-          chat_template_exists: true,
         };
       }
 
       if (command === "qwen_prefetch") {
+        return null;
+      }
+
+      if (command === "models_list") {
+        return [
+          {
+            id: "qwen2.5-0.5b-instruct-q4_0",
+            kind: "llm-gguf",
+            label: "Qwen2.5 0.5B Instruct (q4_0, mock)",
+            repo: "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+            file: "qwen2.5-0.5b-instruct-q4_0.gguf",
+            approx_size_bytes: 352_000_000,
+            installed: true,
+            path: "mock-qwen.gguf",
+            source: "registry",
+          },
+        ];
+      }
+
+      if (command === "ai_status") {
+        return {
+          resources_dir: "mock-resources",
+          models_dir: "mock-models",
+          embedding: {
+            name: "Embeddings (semantic search)",
+            engine: "mock",
+            backend: "cpu",
+            loaded: true,
+            model_path: "mock-embedding.onnx",
+            model_exists: true,
+            error: null,
+          },
+          secret_masker: {
+            name: "Secret masker (DistilBERT)",
+            engine: "mock",
+            backend: "cpu",
+            loaded: true,
+            model_path: "mock-masker.onnx",
+            model_exists: true,
+            error: null,
+          },
+          llm: {
+            name: "Local LLM (tags & summaries)",
+            engine: "mock",
+            backend: "cpu",
+            loaded: false,
+            model_path: "mock-qwen.gguf",
+            model_exists: true,
+            error: null,
+          },
+        };
+      }
+
+      if (command === "models_download" || command === "models_cancel_download") {
         return null;
       }
 

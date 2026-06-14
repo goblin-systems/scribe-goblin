@@ -115,7 +115,7 @@ export async function summarizeEntry(
       }
       return enrichWithGemini(input, settings, "summary");
     case "local-qwen":
-      return enrichWithLocalQwen(input, "summary");
+      return enrichWithLocalQwen(input, "summary", settings);
     default:
       throw new Error("No enrichment provider configured");
   }
@@ -144,7 +144,7 @@ export async function enrichEntry(
       }
       return enrichWithGemini(input, settings, "tags");
     case "local-qwen":
-      return enrichWithLocalQwen(input, "tags");
+      return enrichWithLocalQwen(input, "tags", settings);
     default:
       debugLog(`enrichEntry: Unknown provider ${settings.enrichmentProvider}`, "ERROR");
       throw new Error("No enrichment provider configured");
@@ -201,8 +201,10 @@ async function enrichWithOpenAI(
 async function enrichWithLocalQwen(
   content: string,
   mode: "summary" | "tags",
+  settings: Settings,
 ): Promise<EnrichmentResult> {
-  debugLog(`enrichWithLocalQwen: mode=${mode}`, "INFO");
+  const modelPath = settings.localLlmModelPath?.trim() || null;
+  debugLog(`enrichWithLocalQwen: mode=${mode}, modelPath=${modelPath ?? "(bundled default)"}`, "INFO");
 
   try {
     const status = await invoke<{
@@ -210,17 +212,20 @@ async function enrichWithLocalQwen(
       model_id: string;
       model_path?: string;
       model_exists?: boolean;
-      chat_template_path?: string;
-      chat_template_exists?: boolean;
-    }>("qwen_status").catch((err) => {
+    }>("qwen_status", { modelPath }).catch((err) => {
       debugLog(`enrichWithLocalQwen: qwen_status failed: ${err}`, "WARN");
       return null;
     });
     if (status) {
       debugLog(
-        `enrichWithLocalQwen: status loaded=${status.loaded}, model_exists=${status.model_exists}, template_exists=${status.chat_template_exists}, model_path=${status.model_path ?? "unknown"}`,
+        `enrichWithLocalQwen: status loaded=${status.loaded}, model_exists=${status.model_exists}, model_path=${status.model_path ?? "unknown"}`,
         "INFO",
       );
+      if (status.model_exists === false) {
+        throw new Error(
+          `Local LLM model is not installed (expected at ${status.model_path}). Open Settings → Local AI Models to download one.`,
+        );
+      }
     }
 
     const started = Date.now();
@@ -249,6 +254,7 @@ async function enrichWithLocalQwen(
         text: content,
         systemPrompt: mode === "summary" ? SUMMARY_PROMPT : TAGGING_PROMPT,
         maxTokens: mode === "summary" ? 48 : 32,
+        modelPath,
       });
     } finally {
       pendingTimers.forEach((timer) => globalThis.clearTimeout(timer));

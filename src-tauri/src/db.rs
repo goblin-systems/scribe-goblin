@@ -168,6 +168,64 @@ struct EntryTagRecord {
     color: Option<String>,
 }
 
+/// Read the configured embedding dimension of vec_entries from its CREATE
+/// statement (vec0 virtual tables keep it in sqlite_master).
+pub(crate) fn vec_table_dim(conn: &Connection) -> Result<Option<usize>, String> {
+    let sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name = 'vec_entries'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    let Some(sql) = sql else {
+        return Ok(None);
+    };
+    let Some(start) = sql.find("float[") else {
+        return Ok(None);
+    };
+    let rest = &sql[start + "float[".len()..];
+    let Some(end) = rest.find(']') else {
+        return Ok(None);
+    };
+    rest[..end]
+        .trim()
+        .parse::<usize>()
+        .map(Some)
+        .map_err(|e| format!("Failed to parse vec_entries dimension: {e}"))
+}
+
+/// Make vec_entries hold `dim`-dimensional vectors. Switching embedding models
+/// changes the dimension; old vectors live in a different embedding space and
+/// are useless anyway, so the table is dropped and recreated. Entries regain
+/// vectors via "Regenerate All Embeddings" or as they are (re)processed.
+pub(crate) fn ensure_vec_table_dim(conn: &Connection, dim: usize) -> Result<(), String> {
+    if dim == 0 {
+        return Err("Embedding dimension must be greater than zero".to_string());
+    }
+    match vec_table_dim(conn)? {
+        Some(current) if current == dim => Ok(()),
+        Some(_) => {
+            conn.execute_batch(&format!(
+                "DROP TABLE vec_entries;
+                 CREATE VIRTUAL TABLE vec_entries USING vec0(
+                    entry_id TEXT PRIMARY KEY,
+                    embedding float[{dim}] distance_metric=cosine
+                 );"
+            ))
+            .map_err(|e| format!("Failed to recreate vec_entries with dim {dim}: {e}"))
+        }
+        None => conn
+            .execute_batch(&format!(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS vec_entries USING vec0(
+                    entry_id TEXT PRIMARY KEY,
+                    embedding float[{dim}] distance_metric=cosine
+                 );"
+            ))
+            .map_err(|e| format!("Failed to create vec_entries with dim {dim}: {e}")),
+    }
+}
+
 #[tauri::command]
 pub fn db_init(app: AppHandle, state: State<DbState>) -> Result<(), String> {
     let storage_paths = storage::bootstrap(&app)?;
@@ -389,7 +447,8 @@ pub fn db_update_entry_embedding(
     let conn = guard.as_ref().ok_or("DB not initialised")?;
 
     if let Ok(floats) = serde_json::from_str::<Vec<f32>>(&embedding) {
-        if floats.len() == 384 {
+        if !floats.is_empty() {
+            ensure_vec_table_dim(conn, floats.len())?;
             let bytes: Vec<u8> = floats.iter().flat_map(|f| f.to_le_bytes()).collect();
             conn.execute(
                 "DELETE FROM vec_entries WHERE entry_id = ?1",

@@ -8,6 +8,7 @@ import { getSecretMaskerScanResult } from "./password-model";
 
 export interface ScanOptions {
   secretMaskerEnabled?: boolean;
+  secretMaskerModelPath?: string;
   trufflehogPath?: string;
 }
 
@@ -72,7 +73,10 @@ export async function scan(text: string, context?: SecretDetectionContext, optio
 
   // Stage 2: Secret masker ML model (if enabled)
   if (secretMaskerEnabled) {
-    const maskerResult = await getSecretMaskerScanResult(normalizedText);
+    const maskerResult = await getSecretMaskerScanResult(
+      normalizedText,
+      options?.secretMaskerModelPath,
+    );
     if (maskerResult?.has_secrets) {
       return {
         verdict: "likely_secret",

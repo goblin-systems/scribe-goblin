@@ -1,8 +1,57 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { ScribeDom } from "./dom";
 import type { Settings, EmbeddingProvider, EnrichmentProvider } from "../settings";
-import { getDefaultRankingSettings } from "../settings";
+import { getDefaultRankingSettings, LOCAL_QWEN_MODEL_ID } from "../settings";
 import { saveSettings } from "../settings";
+import { createProgressBar } from "./progress-bar";
+
+// ── Installed local LLM models (populated by models-controller) ─────────────
+
+export interface LocalLlmModelOption {
+  id: string;
+  label: string;
+  path: string;
+}
+
+/** Registry id of the legacy bundled model; old settings stored the bare
+ *  model name, which maps onto this entry. */
+const LEGACY_LOCAL_LLM_ID = "qwen2.5-0.5b-instruct-q4_0";
+
+/** Registry id matching the legacy "MiniLM-L6-v2" embedding model value. */
+const LEGACY_LOCAL_EMBEDDING_ID = "minilm-l6-v2-onnx";
+
+let installedLlmModels: LocalLlmModelOption[] = [];
+let installedEmbeddingModels: LocalLlmModelOption[] = [];
+let installedMaskerModels: LocalLlmModelOption[] = [];
+
+export function setInstalledLlmModels(models: LocalLlmModelOption[]): void {
+  installedLlmModels = models;
+}
+
+export function getInstalledLlmModels(): LocalLlmModelOption[] {
+  return installedLlmModels;
+}
+
+export function setInstalledEmbeddingModels(models: LocalLlmModelOption[]): void {
+  installedEmbeddingModels = models;
+}
+
+export function setInstalledMaskerModels(models: LocalLlmModelOption[]): void {
+  installedMaskerModels = models;
+}
+
+function selectedLocalLlmId(settings: Settings): string {
+  return settings.enrichmentModel === LOCAL_QWEN_MODEL_ID || !settings.enrichmentModel
+    ? LEGACY_LOCAL_LLM_ID
+    : settings.enrichmentModel;
+}
+
+function selectedLocalEmbeddingId(settings: Settings): string {
+  return settings.embeddingModel === "MiniLM-L6-v2" || !settings.embeddingModel
+    ? LEGACY_LOCAL_EMBEDDING_ID
+    : settings.embeddingModel;
+}
 
 export function populateSettingsUI(dom: ScribeDom, settings: Settings): void {
   dom.clipboardMonitoringCheckbox.checked = settings.clipboardMonitoring;
@@ -31,6 +80,7 @@ export function populateSettingsUI(dom: ScribeDom, settings: Settings): void {
 
   // Secret Masker
   dom.secretMaskerEnabledCheckbox.checked = settings.secretMaskerEnabled;
+  updateSecretMaskerModelOptions(dom, settings);
 
   updateProviderSetupSections(dom);
   updateEmbeddingVisibility(dom, settings.embeddingProvider);
@@ -65,7 +115,6 @@ export function updateProviderSetupSections(dom: ScribeDom): void {
   dom.setupOpenaiSection.hidden = provider !== "openai";
   dom.setupGeminiSection.hidden = provider !== "gemini";
   dom.setupOllamaSection.hidden = provider !== "ollama";
-  dom.setupLocalSection.hidden = provider !== "local";
 }
 
 export function updateEmbeddingVisibility(
@@ -93,14 +142,34 @@ export function updateEmbeddingModelOptions(dom: ScribeDom, settings: Settings):
   if (settings.embeddingProvider === "none") noneOpt.selected = true;
   select.appendChild(noneOpt);
 
-  // Local (MiniLM)
+  // Local models (installed ONNX embedders discovered by the model manager)
   const localGroup = document.createElement("optgroup");
-  localGroup.label = "Local Inference";
-  const localOpt = document.createElement("option");
-  localOpt.value = "local|MiniLM-L6-v2";
-  localOpt.textContent = "MiniLM-L6-v2 (Built-in)";
-  if (settings.embeddingProvider === "local") localOpt.selected = true;
-  localGroup.appendChild(localOpt);
+  localGroup.label = "Local Inference (offline)";
+  const isLocalEmbeddingProvider = settings.embeddingProvider === "local";
+  const selectedEmbeddingId = selectedLocalEmbeddingId(settings);
+  let matchedLocalEmbedding = false;
+  for (const model of installedEmbeddingModels) {
+    const opt = document.createElement("option");
+    opt.value = `local|${model.id}`;
+    opt.textContent = model.label;
+    if (isLocalEmbeddingProvider && model.id === selectedEmbeddingId) {
+      opt.selected = true;
+      matchedLocalEmbedding = true;
+    }
+    localGroup.appendChild(opt);
+  }
+  if (isLocalEmbeddingProvider && !matchedLocalEmbedding) {
+    const opt = document.createElement("option");
+    opt.value = `local|${selectedEmbeddingId}`;
+    opt.textContent = `${selectedEmbeddingId} (not installed)`;
+    opt.selected = true;
+    localGroup.appendChild(opt);
+  } else if (installedEmbeddingModels.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = `local|${LEGACY_LOCAL_EMBEDDING_ID}`;
+    opt.textContent = "Local model (none installed — see Local AI Models)";
+    localGroup.appendChild(opt);
+  }
   select.appendChild(localGroup);
 
   // OpenAI
@@ -142,12 +211,63 @@ export function updateEmbeddingModelOptions(dom: ScribeDom, settings: Settings):
   ollamaGroup.appendChild(ollamaOpt);
   select.appendChild(ollamaGroup);
 
-  const openaiFetchedAt = settings.providers.openai.modelCache?.fetchedAt;
-  const geminiFetchedAt = settings.providers.gemini.modelCache?.fetchedAt;
-  if (!openaiFetchedAt && !geminiFetchedAt) {
-    dom.embeddingModelHint.textContent = "Click refresh to fetch latest models.";
+  if (isLocalEmbeddingProvider && !matchedLocalEmbedding) {
+    dom.embeddingModelHint.textContent =
+      "Selected local model is not installed — open Settings → Local AI Models to download one.";
+  } else if (isLocalEmbeddingProvider) {
+    dom.embeddingModelHint.textContent =
+      "Runs fully offline. After switching models, regenerate all embeddings.";
   } else {
-    dom.embeddingModelHint.textContent = "Models discovered and cached.";
+    const openaiFetchedAt = settings.providers.openai.modelCache?.fetchedAt;
+    const geminiFetchedAt = settings.providers.gemini.modelCache?.fetchedAt;
+    if (!openaiFetchedAt && !geminiFetchedAt) {
+      dom.embeddingModelHint.textContent = "Click refresh to fetch latest models.";
+    } else {
+      dom.embeddingModelHint.textContent = "Models discovered and cached.";
+    }
+  }
+}
+
+export function updateSecretMaskerModelOptions(dom: ScribeDom, settings: Settings): void {
+  const select = dom.secretMaskerModelSelect;
+  select.innerHTML = "";
+
+  const selectedPath = settings.secretMaskerModelPath?.trim() ?? "";
+  let matched = false;
+
+  const defaultOpt = document.createElement("option");
+  defaultOpt.value = "";
+  defaultOpt.textContent = "Default (bundled / downloaded slot)";
+  if (!selectedPath) {
+    defaultOpt.selected = true;
+    matched = true;
+  }
+  select.appendChild(defaultOpt);
+
+  for (const model of installedMaskerModels) {
+    const opt = document.createElement("option");
+    opt.value = model.path;
+    opt.textContent = model.label;
+    if (selectedPath && model.path === selectedPath) {
+      opt.selected = true;
+      matched = true;
+    }
+    select.appendChild(opt);
+  }
+
+  if (!matched && selectedPath) {
+    const opt = document.createElement("option");
+    opt.value = selectedPath;
+    opt.textContent = `${selectedPath} (missing)`;
+    opt.selected = true;
+    select.appendChild(opt);
+  }
+
+  if (installedMaskerModels.length === 0) {
+    dom.secretMaskerStatusHint.textContent =
+      "⚠ No secret masker model installed — ML-based masking is inactive (TruffleHog still runs). Open Settings → Local AI Models to download one.";
+  } else {
+    dom.secretMaskerStatusHint.textContent = "";
   }
 }
 
@@ -162,14 +282,34 @@ export function updateEnrichmentModelOptions(dom: ScribeDom, settings: Settings)
   if (settings.enrichmentProvider === "none") noneOpt.selected = true;
   select.appendChild(noneOpt);
 
-  // Local Qwen
+  // Local models (installed GGUFs discovered by the model manager)
   const localGroup = document.createElement("optgroup");
-  localGroup.label = "Local Inference";
-  const qwenOpt = document.createElement("option");
-  qwenOpt.value = "local-qwen|qwen2.5-0.5b-instruct";
-  qwenOpt.textContent = "Qwen2.5-0.5B (Built-in, offline)";
-  if (settings.enrichmentProvider === "local-qwen") qwenOpt.selected = true;
-  localGroup.appendChild(qwenOpt);
+  localGroup.label = "Local Inference (offline)";
+  const isLocalProvider = settings.enrichmentProvider === "local-qwen";
+  const selectedId = selectedLocalLlmId(settings);
+  let matchedSelection = false;
+  for (const model of installedLlmModels) {
+    const opt = document.createElement("option");
+    opt.value = `local-qwen|${model.id}`;
+    opt.textContent = model.label;
+    if (isLocalProvider && model.id === selectedId) {
+      opt.selected = true;
+      matchedSelection = true;
+    }
+    localGroup.appendChild(opt);
+  }
+  if (isLocalProvider && !matchedSelection) {
+    const opt = document.createElement("option");
+    opt.value = `local-qwen|${selectedId}`;
+    opt.textContent = `${selectedId} (not installed)`;
+    opt.selected = true;
+    localGroup.appendChild(opt);
+  } else if (installedLlmModels.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = `local-qwen|${LEGACY_LOCAL_LLM_ID}`;
+    opt.textContent = "Local model (none installed — see Local AI Models)";
+    localGroup.appendChild(opt);
+  }
   select.appendChild(localGroup);
 
   // OpenAI
@@ -198,12 +338,19 @@ export function updateEnrichmentModelOptions(dom: ScribeDom, settings: Settings)
   });
   select.appendChild(geminiGroup);
 
-  const openaiFetchedAt = settings.providers.openai.modelCache?.fetchedAt;
-  const geminiFetchedAt = settings.providers.gemini.modelCache?.fetchedAt;
-  if (!openaiFetchedAt && !geminiFetchedAt) {
-    dom.enrichmentModelHint.textContent = "Click refresh to fetch latest models.";
+  if (isLocalProvider && !matchedSelection) {
+    dom.enrichmentModelHint.textContent =
+      "Selected local model is not installed — open Settings → Local AI Models to download one.";
+  } else if (isLocalProvider) {
+    dom.enrichmentModelHint.textContent = "Runs fully offline via the local LLM engine.";
   } else {
-    dom.enrichmentModelHint.textContent = "Models discovered and cached.";
+    const openaiFetchedAt = settings.providers.openai.modelCache?.fetchedAt;
+    const geminiFetchedAt = settings.providers.gemini.modelCache?.fetchedAt;
+    if (!openaiFetchedAt && !geminiFetchedAt) {
+      dom.enrichmentModelHint.textContent = "Click refresh to fetch latest models.";
+    } else {
+      dom.enrichmentModelHint.textContent = "Models discovered and cached.";
+    }
   }
   dom.refreshEnrichmentModelsBtn.hidden =
     settings.enrichmentProvider === "none" ||
@@ -229,6 +376,17 @@ export function readSettingsFromForm(dom: ScribeDom, current: Settings): Setting
   const [enrichmentProviderStr, enrichmentModelValue] = dom.enrichmentUnifiedModelSelect.value.split("|");
   const enrichmentProvider = enrichmentProviderStr as EnrichmentProvider;
 
+  // Resolve the on-disk path for a locally selected model; empty string falls
+  // back to the legacy bundled location (and fails fast with a clear error).
+  const localLlmModelPath =
+    enrichmentProvider === "local-qwen"
+      ? installedLlmModels.find((m) => m.id === (enrichmentModelValue || ""))?.path ?? ""
+      : current.localLlmModelPath;
+  const localEmbeddingModelPath =
+    embeddingProvider === "local"
+      ? installedEmbeddingModels.find((m) => m.id === (embeddingModelValue || ""))?.path ?? ""
+      : current.localEmbeddingModelPath;
+
   return {
     ...current,
     clipboardMonitoring: dom.clipboardMonitoringCheckbox.checked,
@@ -247,6 +405,7 @@ export function readSettingsFromForm(dom: ScribeDom, current: Settings): Setting
     },
     embeddingProvider,
     embeddingModel: embeddingProvider === "ollama" ? dom.embeddingModelInput.value.trim() : (embeddingModelValue || ""),
+    localEmbeddingModelPath,
     ranking: {
       shortKeywordWeight: readNumberInput(dom.shortKeywordWeightInput, current.ranking.shortKeywordWeight),
       shortSemanticWeight: readNumberInput(dom.shortSemanticWeightInput, current.ranking.shortSemanticWeight),
@@ -262,9 +421,11 @@ export function readSettingsFromForm(dom: ScribeDom, current: Settings): Setting
     enrichmentTaggingEnabled: dom.enrichmentTaggingEnabledCheckbox.checked,
     enrichmentProvider,
     enrichmentModel: enrichmentModelValue || "",
+    localLlmModelPath,
     debugLoggingEnabled: dom.debugLoggingCheckbox.checked,
     trufflehogPath: dom.trufflehogPathInput.value.trim(),
     secretMaskerEnabled: dom.secretMaskerEnabledCheckbox.checked,
+    secretMaskerModelPath: dom.secretMaskerModelSelect.value,
   };
 }
 
@@ -296,25 +457,53 @@ export function cancelAutosave(): void {
   }
 }
 
-export function wireReembedAllButton(dom: ScribeDom): void {
+interface ReembedProgress {
+  done: number;
+  total: number;
+  failed: number;
+  elapsed_ms: number;
+  finished: boolean;
+}
+
+export function wireReembedAllButton(dom: ScribeDom, getSettings: () => Settings): void {
   dom.reembedAllBtn.addEventListener("click", async () => {
     const btn = dom.reembedAllBtn;
     const originalText = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Regenerating...";
+    btn.textContent = "Regenerating…";
+
+    const progress = createProgressBar(dom.reembedProgressHost);
+    // The backend drives progress via events; the bar's own timer is only a
+    // fallback, so feed it the backend's authoritative counts directly.
+    const unlisten = await listen<ReembedProgress>("reembed-progress", (event) => {
+      const p = event.payload;
+      if (p.finished) {
+        progress.finish(
+          p.failed > 0 ? `Done · ${p.failed} failed` : "Done",
+        );
+      } else {
+        progress.update(p.done, p.total);
+      }
+    });
 
     try {
-      await invoke("reembed_all_entries");
+      await invoke("reembed_all_entries", {
+        modelPath: getSettings().localEmbeddingModelPath?.trim() || null,
+      });
       btn.textContent = "Done!";
       setTimeout(() => {
         btn.textContent = originalText;
         btn.disabled = false;
-      }, 2000);
+        progress.reset();
+      }, 2500);
     } catch (err) {
       btn.textContent = originalText;
       btn.disabled = false;
+      progress.reset();
       console.error("reembed_all_entries failed:", err);
       dom.embeddingModelHint.textContent = `Re-embed failed: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      unlisten();
     }
   });
 }

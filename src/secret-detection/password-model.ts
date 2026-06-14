@@ -23,9 +23,15 @@ export interface SecretMaskerResult {
  * Returns the result if secrets are found, or null if none detected.
  * Returns null on error (model not initialized is a valid state).
  */
-export async function runSecretMasker(text: string): Promise<SecretMaskerResult | null> {
+export async function runSecretMasker(
+  text: string,
+  modelPath?: string,
+): Promise<SecretMaskerResult | null> {
   try {
-    const result = await invoke<SecretMaskerResult>("secret_masker_scan", { text });
+    const result = await invoke<SecretMaskerResult>("secret_masker_scan", {
+      text,
+      modelPath: modelPath?.trim() || null,
+    });
     return result.has_secrets ? result : null;
   } catch {
     return null;
@@ -34,9 +40,13 @@ export async function runSecretMasker(text: string): Promise<SecretMaskerResult 
 
 export async function getSecretMaskerScanResult(
   text: string,
+  modelPath?: string,
 ): Promise<SecretMaskerResult | null> {
   try {
-    return await invoke<SecretMaskerResult>("secret_masker_scan", { text });
+    return await invoke<SecretMaskerResult>("secret_masker_scan", {
+      text,
+      modelPath: modelPath?.trim() || null,
+    });
   } catch {
     return null;
   }

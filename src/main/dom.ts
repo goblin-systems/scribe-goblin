@@ -118,7 +118,6 @@ export interface ScribeDom {
   geminiApiKey: HTMLInputElement;
   toggleGeminiKeyBtn: HTMLButtonElement;
   setupOllamaSection: HTMLDivElement;
-  setupLocalSection: HTMLDivElement;
   ollamaBaseUrl: HTMLInputElement;
   testProviderBtn: HTMLButtonElement;
   providerStatus: HTMLSpanElement;
@@ -129,6 +128,7 @@ export interface ScribeDom {
   refreshEmbeddingModelsBtn: HTMLButtonElement;
   embeddingModelHint: HTMLParagraphElement;
   reembedAllBtn: HTMLButtonElement;
+  reembedProgressHost: HTMLDivElement;
 
   // Settings - Enrichment
   enrichmentSummaryEnabledCheckbox: HTMLInputElement;
@@ -138,6 +138,7 @@ export interface ScribeDom {
   refreshEnrichmentModelsBtn: HTMLButtonElement;
   enrichmentModelHint: HTMLParagraphElement;
   retagAllEnrichmentBtn: HTMLButtonElement;
+  retagProgressHost: HTMLDivElement;
 
   // Settings - Ranking
   shortKeywordWeightInput: HTMLInputElement;
@@ -156,16 +157,31 @@ export interface ScribeDom {
   debugLogPath: HTMLParagraphElement;
   openDebugFolderBtn: HTMLButtonElement;
 
-  // Settings - TruffleHog
-  trufflehogSettingsModal: HTMLElement;
+  // Settings - Secret Detection (TruffleHog CLI controls live in the merged modal)
   trufflehogPathInput: HTMLInputElement;
   trufflehogPathHint: HTMLParagraphElement;
   trufflehogStatus: HTMLSpanElement;
   testTrufflehogBtn: HTMLButtonElement;
+  trufflehogDownloadLink: HTMLAnchorElement;
 
-  // Settings - Secret Masker
+  // Settings - Secret Detection (merged modal)
   secretMaskerSettingsModal: HTMLElement;
   secretMaskerEnabledCheckbox: HTMLInputElement;
+  secretMaskerModelSelect: HTMLSelectElement;
+  secretMaskerStatusHint: HTMLParagraphElement;
+
+  // Settings - Local AI Models
+  aiModelsSettingsModal: HTMLElement;
+  aiStatusList: HTMLDivElement;
+  aiModelsLlmList: HTMLDivElement;
+  aiModelsEmbeddingList: HTMLDivElement;
+  aiModelsMaskerList: HTMLDivElement;
+  aiModelsRefreshBtn: HTMLButtonElement;
+  customModelRepoInput: HTMLInputElement;
+  customModelFileInput: HTMLInputElement;
+  customModelKindSelect: HTMLSelectElement;
+  customModelDownloadBtn: HTMLButtonElement;
+  customModelHint: HTMLParagraphElement;
 }
 
 export function createDom(): ScribeDom {
@@ -285,7 +301,6 @@ export function createDom(): ScribeDom {
     geminiApiKey: byId("gemini-api-key"),
     toggleGeminiKeyBtn: byId("toggle-gemini-key-btn"),
     setupOllamaSection: byId("setup-ollama-section"),
-    setupLocalSection: byId("setup-local-section"),
     ollamaBaseUrl: byId("ollama-base-url"),
     testProviderBtn: byId("test-provider-btn"),
     providerStatus: byId("provider-status"),
@@ -296,6 +311,7 @@ export function createDom(): ScribeDom {
     refreshEmbeddingModelsBtn: byId("refresh-embedding-models-btn"),
     embeddingModelHint: byId("embedding-model-hint"),
     reembedAllBtn: byId("reembed-all-btn"),
+    reembedProgressHost: byId("reembed-progress-host"),
 
     // Settings - Enrichment
     enrichmentSummaryEnabledCheckbox: byId("enrichment-summary-enabled-checkbox"),
@@ -305,6 +321,7 @@ export function createDom(): ScribeDom {
     refreshEnrichmentModelsBtn: byId("refresh-enrichment-models-btn"),
     enrichmentModelHint: byId("enrichment-model-hint"),
     retagAllEnrichmentBtn: byId("retag-all-enrichment-btn"),
+    retagProgressHost: byId("retag-progress-host"),
 
     // Settings - Ranking
     shortKeywordWeightInput: byId("short-keyword-weight-input"),
@@ -323,15 +340,30 @@ export function createDom(): ScribeDom {
     debugLogPath: byId("debug-log-path"),
     openDebugFolderBtn: byId("open-debug-folder-btn"),
 
-    // Settings - TruffleHog
-    trufflehogSettingsModal: byId("trufflehog-settings-modal"),
+    // Settings - Secret Detection (TruffleHog CLI controls live in the merged modal)
     trufflehogPathInput: byId("trufflehog-path-input"),
     trufflehogPathHint: byId("trufflehog-path-hint"),
     trufflehogStatus: byId("trufflehog-status"),
     testTrufflehogBtn: byId("test-trufflehog-btn"),
+    trufflehogDownloadLink: byId("trufflehog-download-link"),
 
-    // Settings - Secret Masker
+    // Settings - Secret Detection (merged modal)
     secretMaskerSettingsModal: byId("secret-masker-settings-modal"),
     secretMaskerEnabledCheckbox: byId("secret-masker-enabled-checkbox"),
+    secretMaskerModelSelect: byId("secret-masker-model-select"),
+    secretMaskerStatusHint: byId("secret-masker-status-hint"),
+
+    // Settings - Local AI Models
+    aiModelsSettingsModal: byId("ai-models-settings-modal"),
+    aiStatusList: byId("ai-status-list"),
+    aiModelsLlmList: byId("ai-models-llm-list"),
+    aiModelsEmbeddingList: byId("ai-models-embedding-list"),
+    aiModelsMaskerList: byId("ai-models-masker-list"),
+    aiModelsRefreshBtn: byId("ai-models-refresh-btn"),
+    customModelRepoInput: byId("custom-model-repo-input"),
+    customModelFileInput: byId("custom-model-file-input"),
+    customModelKindSelect: byId("custom-model-kind-select"),
+    customModelDownloadBtn: byId("custom-model-download-btn"),
+    customModelHint: byId("custom-model-hint"),
   };
 }

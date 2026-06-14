@@ -1505,7 +1505,10 @@ export async function processNoteBackground(
   content: string,
 ): Promise<void> {
   const settings = getSettings();
-  const embeddingPromise = invoke<number[]>("generate_embedding", { text: content }).catch((err) => {
+  const embeddingPromise = invoke<number[]>("generate_embedding", {
+    text: content,
+    modelPath: settings.localEmbeddingModelPath?.trim() || null,
+  }).catch((err) => {
     debugLog(`Embedding failed for entry ${id}: ${err}`, "WARN");
     return null;
   });
@@ -1519,6 +1522,7 @@ export async function processNoteBackground(
 
   const secretPromise = scan(content, undefined, {
     secretMaskerEnabled: settings.secretMaskerEnabled,
+    secretMaskerModelPath: settings.secretMaskerModelPath,
     trufflehogPath: settings.trufflehogPath,
   }).catch((err) => {
     debugLog(`Secret detection failed for entry ${id}: ${err}`, "WARN");

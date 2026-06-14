@@ -240,6 +240,134 @@ pub fn get_related_entries(
     )
 }
 
+/// A semantic similarity edge between two entries, for the graph view.
+#[derive(Debug, Serialize)]
+pub struct SemanticGraphEdge {
+    pub source: String,
+    pub target: String,
+    /// Cosine similarity in [0, 1] (1.0 = identical direction).
+    pub similarity: f64,
+}
+
+/// Build KNN edges among a set of entries using their embeddings. For each
+/// entry that has an embedding, the nearest neighbours within the same set are
+/// connected if their cosine similarity clears `min_similarity`. This is the
+/// same vector space that powers semantic search, so the graph reflects actual
+/// content similarity rather than incidental metadata (badges, source app).
+#[tauri::command]
+pub fn build_semantic_graph(
+    state: TauriState<DbState>,
+    entry_ids: Vec<String>,
+    top_k: Option<i64>,
+    min_similarity: Option<f64>,
+) -> Result<Vec<SemanticGraphEdge>, String> {
+    let guard = state.conn.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or("DB not initialised")?;
+    build_semantic_graph_with_conn(
+        conn,
+        &entry_ids,
+        top_k.unwrap_or(4),
+        min_similarity.unwrap_or(0.55),
+    )
+}
+
+pub(crate) fn build_semantic_graph_with_conn(
+    conn: &Connection,
+    entry_ids: &[String],
+    top_k: i64,
+    min_similarity: f64,
+) -> Result<Vec<SemanticGraphEdge>, String> {
+    let top_k = top_k.clamp(1, 32);
+    let id_set: HashSet<&str> = entry_ids.iter().map(String::as_str).collect();
+    if id_set.len() < 2 {
+        return Ok(Vec::new());
+    }
+
+    // The configured embedding dimension; a mismatch means the query bytes
+    // can't be compared (e.g. after a model switch without re-embedding).
+    let table_dim = db::vec_table_dim(conn)?;
+
+    // KNN returns global neighbours, so over-fetch and filter down to the set.
+    let fetch_k = (top_k.saturating_mul(4) + 8).min(256);
+    let mut stmt = conn
+        .prepare(
+            "SELECT entry_id, distance FROM vec_entries \
+             WHERE embedding MATCH ?1 ORDER BY distance LIMIT ?2",
+        )
+        .map_err(|e| e.to_string())?;
+
+    // Accumulate the strongest similarity seen for each undirected pair.
+    let mut best: HashMap<(String, String), f64> = HashMap::new();
+
+    for source in entry_ids {
+        let Some(embedding) = parse_entry_embedding(conn, source) else {
+            continue;
+        };
+        if let Some(dim) = table_dim {
+            if embedding.len() != dim {
+                continue;
+            }
+        }
+        let query_bytes: Vec<u8> = embedding
+            .iter()
+            .flat_map(|&v| (v as f32).to_le_bytes())
+            .collect();
+
+        let neighbours = stmt
+            .query_map(params![query_bytes, fetch_k], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+
+        let mut kept = 0i64;
+        for (target, distance) in neighbours {
+            if kept >= top_k {
+                break;
+            }
+            if &target == source || !id_set.contains(target.as_str()) {
+                continue;
+            }
+            let similarity = 1.0 - distance;
+            if similarity < min_similarity {
+                continue;
+            }
+            kept += 1;
+            let (a, b) = if source.as_str() < target.as_str() {
+                (source.clone(), target.clone())
+            } else {
+                (target.clone(), source.clone())
+            };
+            best.entry((a, b))
+                .and_modify(|s| {
+                    if similarity > *s {
+                        *s = similarity;
+                    }
+                })
+                .or_insert(similarity);
+        }
+    }
+
+    let mut edges: Vec<SemanticGraphEdge> = best
+        .into_iter()
+        .map(|((source, target), similarity)| SemanticGraphEdge {
+            source,
+            target,
+            similarity,
+        })
+        .collect();
+    // Strongest first; deterministic ordering for stable layouts.
+    edges.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.source.cmp(&b.source))
+            .then_with(|| a.target.cmp(&b.target))
+    });
+    Ok(edges)
+}
+
 #[tauri::command]
 pub fn rebuild_search_indexes(
     state: TauriState<DbState>,
@@ -1157,8 +1285,10 @@ fn exact_keyword_search_with_conn(
 
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let entry = row_to_entry(row).map_err(|e| e.to_string())?;
-        let rank = row.get::<_, f64>(22).map_err(|e| e.to_string())?;
-        let bm25 = row.get::<_, Option<f64>>(23).map_err(|e| e.to_string())?;
+        let rank = row.get::<_, f64>("search_rank").map_err(|e| e.to_string())?;
+        let bm25 = row
+            .get::<_, Option<f64>>("bm25_score")
+            .map_err(|e| e.to_string())?;
         let matched_tags =
             collect_matched_tags(&entry, query_terms.as_slice(), filters.tag.as_deref());
 
@@ -1252,7 +1382,9 @@ fn prefix_keyword_candidates_with_conn(
         candidates.push(PrefixMatchCandidate {
             entry: row_to_entry(row).map_err(|e| e.to_string())?,
             matched_terms: query_terms.to_vec(),
-            quality_penalty: row.get::<_, i64>(22).map_err(|e| e.to_string())?,
+            quality_penalty: row
+                .get::<_, i64>("prefix_penalty")
+                .map_err(|e| e.to_string())?,
         });
     }
 
@@ -1346,11 +1478,20 @@ fn semantic_search_with_conn(
             candidate_count: 0,
         });
     }
-    if query_f32.len() != 384 {
-        eprintln!(
-            "semantic_search: query embedding has {} dimensions, expected 384",
-            query_f32.len()
-        );
+    // A query embedded with a different model than the stored vectors cannot
+    // be compared; skip the vector search rather than erroring inside vec0.
+    if let Some(table_dim) = db::vec_table_dim(conn)? {
+        if query_f32.len() != table_dim {
+            eprintln!(
+                "semantic_search: query embedding has {} dimensions but vec_entries holds {} — regenerate embeddings after switching models",
+                query_f32.len(),
+                table_dim,
+            );
+            return Ok(SemanticSearchOutcome {
+                results: Vec::new(),
+                candidate_count: 0,
+            });
+        }
     }
     let query_bytes: Vec<u8> = query_f32.iter().flat_map(|f| f.to_le_bytes()).collect();
 
@@ -2511,6 +2652,27 @@ mod tests {
     }
 
     #[test]
+    fn vec_table_dim_is_read_and_recreated_on_change() {
+        let conn = setup_conn();
+        assert_eq!(crate::db::vec_table_dim(&conn).unwrap(), Some(3));
+
+        crate::db::ensure_vec_table_dim(&conn, 5).unwrap();
+        assert_eq!(crate::db::vec_table_dim(&conn).unwrap(), Some(5));
+
+        // Same dimension is a no-op and keeps existing rows.
+        conn.execute(
+            "INSERT INTO vec_entries(entry_id, embedding) VALUES ('e1', ?1)",
+            params![[0u8; 20].as_slice()],
+        )
+        .unwrap();
+        crate::db::ensure_vec_table_dim(&conn, 5).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM vec_entries", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
     fn rebuilds_indexes_and_filters_by_exact_tag() {
         let conn = setup_conn();
 
@@ -3114,6 +3276,51 @@ mod tests {
             .iter()
             .any(|reason| reason == "semantic"));
         assert!(results.iter().all(|result| result.entry.id != "anchor"));
+    }
+
+    #[test]
+    fn semantic_graph_connects_similar_entries_not_dissimilar_ones() {
+        let conn = setup_conn();
+
+        // Two near-identical vectors and one orthogonal one.
+        let morning = sample_entry("morning", "good morning", "clipboard", 100, false);
+        insert_entry(&conn, &morning).unwrap();
+        insert_test_embedding(&conn, "morning", "[1.0, 0.05, 0.0]");
+
+        let afternoon = sample_entry("afternoon", "good afternoon", "clipboard", 110, false);
+        insert_entry(&conn, &afternoon).unwrap();
+        insert_test_embedding(&conn, "afternoon", "[0.98, 0.1, 0.0]");
+
+        let script = sample_entry("script", "bash script", "clipboard", 120, false);
+        insert_entry(&conn, &script).unwrap();
+        insert_test_embedding(&conn, "script", "[0.0, 0.0, 1.0]");
+
+        let ids = vec![
+            "morning".to_string(),
+            "afternoon".to_string(),
+            "script".to_string(),
+        ];
+        let edges = build_semantic_graph_with_conn(&conn, &ids, 4, 0.5).unwrap();
+
+        // morning↔afternoon must be connected; neither should link to script.
+        assert_eq!(edges.len(), 1, "expected exactly one strong edge: {edges:?}");
+        let edge = &edges[0];
+        assert_eq!(edge.source, "afternoon");
+        assert_eq!(edge.target, "morning");
+        assert!(edge.similarity > 0.9, "similarity was {}", edge.similarity);
+    }
+
+    #[test]
+    fn semantic_graph_is_empty_without_embeddings() {
+        let conn = setup_conn();
+        let a = sample_entry("a", "alpha", "clipboard", 100, false);
+        insert_entry(&conn, &a).unwrap();
+        let b = sample_entry("b", "beta", "clipboard", 110, false);
+        insert_entry(&conn, &b).unwrap();
+
+        let ids = vec!["a".to_string(), "b".to_string()];
+        let edges = build_semantic_graph_with_conn(&conn, &ids, 4, 0.5).unwrap();
+        assert!(edges.is_empty());
     }
 
     #[test]

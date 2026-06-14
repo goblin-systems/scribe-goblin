@@ -1,7 +1,17 @@
-NUL
-node_modiules/
-dist/
+# Node
+node_modules/
 **/node_modules/
+dist/
 **/dist/
+
+# Rust / Tauri
+src-tauri/target/
+**/target/
+src-tauri/gen/schemas/
+
+# Resources
 resources/**/*.gguf
 resources/**/*.onnx
+
+# OS
+.DS_Store

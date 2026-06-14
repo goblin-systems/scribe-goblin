@@ -227,7 +227,8 @@ pub fn simulate_paste(text: String, html: Option<String>) -> Result<(), String> 
     Ok(())
 }
 
-#[cfg(test)]
+// CF_HTML is a Windows clipboard format; the helper under test only exists there.
+#[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::build_cf_html_payload;
 

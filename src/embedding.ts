@@ -35,7 +35,7 @@ export async function getEmbedding(text: string, settings: Settings): Promise<nu
 
   switch (settings.embeddingProvider) {
     case "local":
-      return getLocalEmbedding(input);
+      return getLocalEmbedding(input, settings.localEmbeddingModelPath);
     case "openai":
       if (!settings.providers.openai.apiKey) {
         debugLog("getEmbedding: OpenAI key is missing", "ERROR");
@@ -60,9 +60,12 @@ export async function getEmbedding(text: string, settings: Settings): Promise<nu
   }
 }
 
-async function getLocalEmbedding(text: string): Promise<number[]> {
+async function getLocalEmbedding(text: string, modelPath?: string): Promise<number[]> {
   debugLog("getLocalEmbedding using generate_embedding backend", "INFO");
-  return invoke<number[]>("generate_embedding", { text });
+  return invoke<number[]>("generate_embedding", {
+    text,
+    modelPath: modelPath?.trim() || null,
+  });
 }
 
 async function getOpenAIEmbedding(text: string, apiKey: string, model: string): Promise<number[]> {

@@ -17,8 +17,10 @@ import {
   unregister,
 } from "@tauri-apps/plugin-global-shortcut";
 import { createDom } from "./main/dom";
+import { createProgressBar } from "./main/progress-bar";
 import { setupShell } from "./main/shell-controller";
 import { setupShortcutsController } from "./main/shortcuts-controller";
+import { initAiModelsController } from "./main/models-controller";
 import {
   populateSettingsUI,
   resetRankingSettingsUI,
@@ -515,18 +517,27 @@ async function init() {
     },
   });
 
-  const shell = setupShell({ dom, getSettings, setSettings, onOpenQuickAdd: openQuickAdd, onOpenShortcutsSettings: () => shortcutsController.openShortcutsSettings() });
+  const aiModelsController = initAiModelsController(dom, getSettings);
+  const shell = setupShell({
+    dom,
+    getSettings,
+    setSettings,
+    onOpenQuickAdd: openQuickAdd,
+    onOpenShortcutsSettings: () => shortcutsController.openShortcutsSettings(),
+    onOpenAiModelsSettings: () => void aiModelsController.refresh(),
+  });
   await shell.applySettingsToUI(currentSettings);
   await initImportController(dom);
 
   populateSettingsUI(dom, currentSettings);
   updateRuntimeShortcutLabels(dom);
-  wireReembedAllButton(dom);
+  wireReembedAllButton(dom, getSettings);
 
   const handleRetagAll = async (btn: HTMLButtonElement) => {
     const originalText = btn.textContent;
     btn.disabled = true;
-    btn.textContent = "Retagging...";
+    btn.textContent = "Retagging…";
+    const progress = createProgressBar(dom.retagProgressHost);
 
     try {
       const nextSettings = readSettingsFromForm(dom, currentSettings);
@@ -538,11 +549,12 @@ async function init() {
         limit: 1000000,
       });
 
+      progress.update(0, entries.length);
       let processed = 0;
       for (const entry of entries) {
         await processNoteBackground(entry.id, entry.content);
         processed += 1;
-        btn.textContent = `Retagging ${processed}/${entries.length}...`;
+        progress.update(processed, entries.length);
       }
 
       if (activeView.kind === "clipboard") {
@@ -552,15 +564,18 @@ async function init() {
       }
 
       await emit("entries-changed");
+      progress.finish(`Retagged ${entries.length} items`);
       showToast(`Retagged ${entries.length} items`, "success", 1600);
       btn.textContent = "Done!";
       window.setTimeout(() => {
         btn.textContent = originalText;
         btn.disabled = false;
-      }, 2000);
+        progress.reset();
+      }, 2500);
     } catch (err) {
       btn.textContent = originalText;
       btn.disabled = false;
+      progress.reset();
       console.error("retag_all_items failed:", err);
       showToast("Failed to retag items", "error");
     }
@@ -1046,10 +1061,6 @@ async function init() {
 
   function initProviderStatus() {
     const provider = dom.providerSetupSelect.value;
-    if (provider === "local") {
-      updateProviderStatus("connected");
-      return;
-    }
     const apiKey =
       provider === "openai"
         ? currentSettings.providers.openai.apiKey
@@ -1631,11 +1642,7 @@ async function init() {
   // Provider Setup
   dom.providerSetupSelect.addEventListener("change", () => {
     updateProviderSetupSections(dom);
-    if (dom.providerSetupSelect.value === "local") {
-      updateProviderStatus("connected");
-    } else {
-      updateProviderStatus("untested");
-    }
+    updateProviderStatus("untested");
   });
   dom.openaiApiKey.addEventListener("input", () => {
     onSettingsChange();
@@ -1706,6 +1713,19 @@ async function init() {
   dom.secretMaskerEnabledCheckbox.addEventListener("change", () =>
     onSettingsChange(0),
   );
+  dom.secretMaskerModelSelect.addEventListener("change", () =>
+    onSettingsChange(0),
+  );
+
+  // TruffleHog download link (opens in the system browser)
+  dom.trufflehogDownloadLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    invoke("open_external_url", {
+      url: "https://github.com/trufflesecurity/trufflehog/releases",
+    }).catch((err) => {
+      debugLog(`Failed to open TruffleHog releases page: ${err}`, "ERROR");
+    });
+  });
 
   // ── API key show/hide toggles ─────────────────────────────────────────────
   function toggleKeyVisibility(
@@ -1805,15 +1825,8 @@ async function init() {
       const provider = dom.providerSetupSelect.value as
         | "openai"
         | "gemini"
-        | "ollama"
-        | "local";
+        | "ollama";
       debugLog(`Testing connection for provider: ${provider}`, "INFO");
-
-      if (provider === "local") {
-        updateProviderStatus("connected");
-        showToast("Local inference is ready", "success");
-        return;
-      }
 
       // Get the currently entered API key explicitly
       let keyToCheck = "";

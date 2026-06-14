@@ -112,17 +112,17 @@
                 <span class="nav-option-icon"><i data-lucide="sparkles"></i></span>
                 <span class="nav-option-label">Enrichment</span>
               </button>
+              <button class="nav-option" type="button" data-nav-id="open-ai-models-settings">
+                <span class="nav-option-icon"><i data-lucide="cpu"></i></span>
+                <span class="nav-option-label">Local AI Models</span>
+              </button>
               <button class="nav-option" type="button" data-nav-id="open-ranking-settings">
                 <span class="nav-option-icon"><i data-lucide="sliders-horizontal"></i></span>
                 <span class="nav-option-label">Ranking</span>
               </button>
-              <button class="nav-option" type="button" data-nav-id="open-trufflehog-settings">
-                <span class="nav-option-icon"><i data-lucide="shield-check"></i></span>
-                <span class="nav-option-label">TruffleHog</span>
-              </button>
               <button class="nav-option" type="button" data-nav-id="open-secret-masker-settings">
-                <span class="nav-option-icon"><i data-lucide="brain"></i></span>
-                <span class="nav-option-label">Secret Masker</span>
+                <span class="nav-option-icon"><i data-lucide="shield-check"></i></span>
+                <span class="nav-option-label">Secret Detection</span>
               </button>
               <div class="nav-divider"></div>
               <button class="nav-option" type="button" data-nav-id="open-debug-settings">
@@ -457,21 +457,15 @@
             </button>
           </div>
           <div class="modal-body">
-            <p class="hint">Configure your API keys once to use them for both embeddings and AI enrichment.</p>
+            <p class="hint">Configure remote AI providers (API keys / endpoints) used for embeddings and enrichment. Offline models are managed under Settings &gt; Local AI Models.</p>
 
             <div class="field-block" style="margin-top:12px;">
               <label class="field-label" for="provider-setup-select">Configure Provider</label>
               <select id="provider-setup-select" class="select-field">
-                <option value="local">Local (MiniLM)</option>
                 <option value="openai">OpenAI</option>
                 <option value="gemini">Google Gemini</option>
-                <option value="ollama">Ollama (local)</option>
+                <option value="ollama">Ollama (self-hosted)</option>
               </select>
-            </div>
-
-            <!-- Local Setup -->
-            <div id="setup-local-section">
-              <p class="hint">Using built-in offline models for embeddings and local enrichment.</p>
             </div>
 
             <!-- OpenAI Setup -->
@@ -520,7 +514,6 @@
             </div>
           </div>
           <div class="modal-footer">
-            <button class="secondary-btn" id="retag-all-enrichment-btn" type="button">Retag All Items</button>
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>
           </div>
         </div>
@@ -549,6 +542,7 @@
               </div>
               <p id="embedding-model-hint" class="hint" style="margin-top:4px;"></p>
             </div>
+            <div id="reembed-progress-host" class="progress-host" hidden></div>
           </div>
           <div class="modal-footer">
             <button class="secondary-btn" id="reembed-all-btn" type="button">Regenerate All Embeddings</button>
@@ -591,9 +585,67 @@
                 <p id="enrichment-model-hint" class="hint" style="margin-top:4px;"></p>
               </div>
             </div>
+            <div id="retag-progress-host" class="progress-host" hidden></div>
           </div>
           <div class="modal-footer">
             <button class="secondary-btn" id="retag-all-enrichment-btn" type="button">Retag All Items</button>
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Local AI Models -->
+      <div id="ai-models-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ai-models-settings-title">
+          <div class="modal-header">
+            <h3 id="ai-models-settings-title">Local AI Models</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="hint">Status of the local inference engines and the models they use. Downloads come from Hugging Face and are stored in the app data folder, not the repo.</p>
+
+            <section style="margin-top:12px;">
+              <h4 style="margin:0 0 6px 0;">Engine status</h4>
+              <div id="ai-status-list"></div>
+            </section>
+
+            <section style="margin-top:16px;">
+              <h4 style="margin:0 0 6px 0;">General-purpose LLMs (tags &amp; summaries)</h4>
+              <p class="hint" style="margin:0 0 4px 0;">Qwen-family models; pick the active one under Settings &gt; Enrichment.</p>
+              <div id="ai-models-llm-list"></div>
+            </section>
+
+            <section style="margin-top:16px;">
+              <h4 style="margin:0 0 6px 0;">Embedding models (semantic search)</h4>
+              <p class="hint" style="margin:0 0 4px 0;">All 384-dimensional; pick the active one under Settings &gt; Embeddings, then regenerate embeddings.</p>
+              <div id="ai-models-embedding-list"></div>
+            </section>
+
+            <section style="margin-top:16px;">
+              <h4 style="margin:0 0 6px 0;">Secret maskers</h4>
+              <p class="hint" style="margin:0 0 4px 0;">Token-classification models for secret detection; pick the active one under Settings &gt; Secret Detection.</p>
+              <div id="ai-models-masker-list"></div>
+            </section>
+
+            <section style="margin-top:16px;">
+              <h4 style="margin:0 0 6px 0;">Custom download</h4>
+              <div class="row gap-2" style="flex-wrap:wrap;align-items:center;">
+                <input type="text" id="custom-model-repo-input" class="input-field" style="flex:1.4;min-width:200px;" placeholder="HF repo, e.g. Qwen/Qwen2.5-0.5B-Instruct-GGUF" />
+                <input type="text" id="custom-model-file-input" class="input-field" style="flex:1;min-width:160px;" placeholder="File, e.g. model-q4_k_m.gguf" />
+                <select id="custom-model-kind-select" class="select-field" style="width:auto;">
+                  <option value="llm-gguf">LLM (GGUF)</option>
+                  <option value="embedding-onnx">Embedding (ONNX)</option>
+                  <option value="secret-masker-onnx">Secret masker (ONNX)</option>
+                </select>
+                <button class="secondary-btn slim-btn" id="custom-model-download-btn" type="button">Download</button>
+              </div>
+              <p id="custom-model-hint" class="hint" style="margin-top:4px;"></p>
+            </section>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn" id="ai-models-refresh-btn" type="button">Refresh</button>
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>
           </div>
         </div>
@@ -649,58 +701,61 @@
         </div>
       </div>
 
-      <!-- TruffleHog Settings -->
-      <div id="trufflehog-settings-modal" class="modal-backdrop" hidden>
-        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="trufflehog-settings-title">
-          <div class="modal-header">
-            <h3 id="trufflehog-settings-title">TruffleHog</h3>
-            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
-              <i data-lucide="x"></i>
-            </button>
-          </div>
-          <div class="modal-body">
-            <p class="hint">TruffleHog scans clipboard content for real-world secrets (API keys, tokens, passwords). It runs locally via the CLI binary.</p>
-
-            <div class="field-block" style="margin-top:12px;">
-              <label class="field-label" for="trufflehog-path-input">Custom binary path <span class="text-subtle">(optional)</span></label>
-              <input type="text" id="trufflehog-path-input" class="input-field" placeholder="Leave empty to auto-detect from PATH" autocomplete="off" />
-              <p id="trufflehog-path-hint" class="hint" style="margin-top:4px;">Click Test to check TruffleHog availability.</p>
-            </div>
-
-            <div class="row gap-2" style="margin-top:12px;align-items:center;">
-              <span id="trufflehog-status" class="status-indicator disconnected">
-                <span class="status-dot"></span>
-                <span class="status-text">Not tested</span>
-              </span>
-              <button class="secondary-btn slim-btn" id="test-trufflehog-btn" type="button">
-                <i data-lucide="zap"></i>
-                Test
-              </button>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Secret Masker Settings -->
+      <!-- Secret Detection Settings (TruffleHog CLI + ML secret masker) -->
       <div id="secret-masker-settings-modal" class="modal-backdrop" hidden>
         <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="secret-masker-settings-title">
           <div class="modal-header">
-            <h3 id="secret-masker-settings-title">Secret Masker</h3>
+            <h3 id="secret-masker-settings-title">Secret Detection</h3>
             <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
               <i data-lucide="x"></i>
             </button>
           </div>
           <div class="modal-body">
-            <p class="hint">Uses a DistilBERT ML model to detect secrets (API keys, tokens, passwords) that TruffleHog may miss. Runs locally via ONNX — no data leaves your machine.</p>
-            <div class="modal-form-grid" style="margin-top:12px;">
-              <label class="checkbox-label">
-                <input id="secret-masker-enabled-checkbox" type="checkbox" />
-                <span>Enable secret masker model</span>
-              </label>
-            </div>
+            <p class="hint">Two layers guard against leaking secrets (API keys, tokens, passwords). They run locally — no data leaves your machine.</p>
+
+            <section style="margin-top:16px;">
+              <h4 style="margin:0 0 6px 0;">TruffleHog (CLI scanner)</h4>
+              <p class="hint" style="margin:0;">High-precision detection of real-world credentials via the TruffleHog binary.</p>
+              <p class="hint" style="margin-top:6px;">
+                TruffleHog is a separate open-source tool and is not bundled with this app.
+                Install it with <code>brew install trufflehog</code>, or download a release from
+                <a href="#" id="trufflehog-download-link">github.com/trufflesecurity/trufflehog</a>.
+                If it is not on your PATH, set the binary path below.
+              </p>
+
+              <div class="field-block" style="margin-top:12px;">
+                <label class="field-label" for="trufflehog-path-input">Custom binary path <span class="text-subtle">(optional)</span></label>
+                <input type="text" id="trufflehog-path-input" class="input-field" placeholder="Leave empty to auto-detect from PATH" autocomplete="off" />
+                <p id="trufflehog-path-hint" class="hint" style="margin-top:4px;">Click Test to check TruffleHog availability.</p>
+              </div>
+
+              <div class="row gap-2" style="margin-top:12px;align-items:center;">
+                <span id="trufflehog-status" class="status-indicator disconnected">
+                  <span class="status-dot"></span>
+                  <span class="status-text">Not tested</span>
+                </span>
+                <button class="secondary-btn slim-btn" id="test-trufflehog-btn" type="button">
+                  <i data-lucide="zap"></i>
+                  Test
+                </button>
+              </div>
+            </section>
+
+            <section style="margin-top:20px;">
+              <h4 style="margin:0 0 6px 0;">Secret masker (ML model)</h4>
+              <p class="hint" style="margin:0;">A DistilBERT model (ONNX) catches secrets that TruffleHog may miss.</p>
+              <div class="modal-form-grid" style="margin-top:12px;">
+                <label class="checkbox-label">
+                  <input id="secret-masker-enabled-checkbox" type="checkbox" />
+                  <span>Enable secret masker model</span>
+                </label>
+              </div>
+              <div class="field-block" style="margin-top:12px;">
+                <label class="field-label" for="secret-masker-model-select">Model</label>
+                <select id="secret-masker-model-select" class="select-field"></select>
+                <p id="secret-masker-status-hint" class="hint" style="margin-top:4px;"></p>
+              </div>
+            </section>
           </div>
           <div class="modal-footer">
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>

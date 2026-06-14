@@ -179,7 +179,15 @@ interface GraphEdge {
   a: number;
   b: number;
   weight: number;
-  reason: "badge" | "source-app" | "import-origin" | "neighbour";
+  reason: "semantic" | "badge" | "source-app" | "import-origin" | "neighbour";
+  /** Cosine similarity in [0,1] for semantic edges; undefined otherwise. */
+  score?: number;
+}
+
+interface SemanticGraphEdge {
+  source: string;
+  target: string;
+  similarity: number;
 }
 
 class CollectionGraphView {
@@ -200,6 +208,9 @@ class CollectionGraphView {
 
   private nodes: GraphNode[] = [];
   private edges: GraphEdge[] = [];
+
+  /** When true, edges show their similarity score (debug logging setting). */
+  private debugEnabled = false;
 
   private W = 0;
   private H = 0;
@@ -501,7 +512,23 @@ class CollectionGraphView {
       );
 
       if (token !== this.loadToken) return;
-      this.buildGraph(results.map((r) => r.entry));
+
+      const entries = results.map((r) => r.entry);
+
+      // Semantic (KNN) edges from the embedding space — the primary graph
+      // structure. Failure here is non-fatal; we fall back to metadata edges.
+      let semanticEdges: SemanticGraphEdge[] = [];
+      try {
+        semanticEdges = await invoke<SemanticGraphEdge[]>("build_semantic_graph", {
+          entryIds: entries.map((e) => e.id),
+        });
+      } catch (err) {
+        console.error("collection-graph: semantic edge query failed", err);
+      }
+
+      if (token !== this.loadToken) return;
+      this.debugEnabled = Boolean(this.options.getSettings()?.debugLoggingEnabled);
+      this.buildGraph(entries, semanticEdges);
     } catch (err) {
       console.error("collection-graph: failed to load entries", err);
     } finally {
@@ -509,7 +536,10 @@ class CollectionGraphView {
     }
   }
 
-  private buildGraph(entries: EntryRow[]): void {
+  private buildGraph(
+    entries: EntryRow[],
+    semanticEdges: SemanticGraphEdge[] = [],
+  ): void {
     const previousById = new Map<string, GraphNode>();
     for (const node of this.nodes) previousById.set(node.id, node);
 
@@ -551,7 +581,7 @@ class CollectionGraphView {
       };
     });
 
-    this.edges = buildEdges(this.nodes);
+    this.edges = buildEdges(this.nodes, semanticEdges);
     this.statsCount.textContent = String(this.nodes.length);
     this.statsSecret.textContent = String(
       this.nodes.reduce((acc, n) => acc + (n.isSecret ? 1 : 0), 0),
@@ -791,6 +821,27 @@ class CollectionGraphView {
         ctx.shadowColor = `${baseColor}0.9)`;
         ctx.fill();
         ctx.shadowBlur = 0;
+      }
+
+      // Debug: connection-strength score (KNN cosine similarity) at the edge
+      // midpoint. Only shown for semantic edges and when not dimmed.
+      if (this.debugEnabled && edge.score !== undefined && !dim) {
+        // Midpoint of the quadratic curve at t = 0.5.
+        const mx = 0.25 * a.x + 0.5 * cx + 0.25 * b.x;
+        const my = 0.25 * a.y + 0.5 * cy + 0.25 * b.y;
+        const label = edge.score.toFixed(2);
+        ctx.save();
+        ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const w = ctx.measureText(label).width + 6;
+        ctx.fillStyle = "rgba(10, 12, 20, 0.78)";
+        ctx.fillRect(mx - w / 2, my - 7, w, 14);
+        ctx.fillStyle = isHighlighted
+          ? "rgba(220, 230, 255, 0.95)"
+          : "rgba(180, 190, 215, 0.75)";
+        ctx.fillText(label, mx, my);
+        ctx.restore();
       }
     }
   }
@@ -1087,19 +1138,48 @@ class CollectionGraphView {
 
 // ── Edge construction ──────────────────────────────────────────────────────
 
-function buildEdges(nodes: GraphNode[]): GraphEdge[] {
+function buildEdges(
+  nodes: GraphNode[],
+  semanticEdges: SemanticGraphEdge[] = [],
+): GraphEdge[] {
   const edges: GraphEdge[] = [];
   if (nodes.length < 2) return edges;
 
   const seen = new Set<string>();
-  const addEdge = (a: number, b: number, weight: number, reason: GraphEdge["reason"]) => {
+  const addEdge = (
+    a: number,
+    b: number,
+    weight: number,
+    reason: GraphEdge["reason"],
+    score?: number,
+  ) => {
     if (a === b) return;
     const key = a < b ? `${a}-${b}` : `${b}-${a}`;
     if (seen.has(key)) return;
     seen.add(key);
-    edges.push({ a, b, weight, reason });
+    edges.push({ a, b, weight, reason, score });
   };
 
+  // ── Primary: semantic similarity (KNN over embeddings) ──────────────────
+  // This is the meaningful structure — entries about the same thing connect,
+  // regardless of which app they were copied from. Edge weight scales with
+  // similarity so stronger matches pull harder in the layout.
+  const indexById = new Map<string, number>();
+  for (let i = 0; i < nodes.length; i++) indexById.set(nodes[i]!.id, i);
+  const semanticallyConnected = new Set<number>();
+  for (const edge of semanticEdges) {
+    const a = indexById.get(edge.source);
+    const b = indexById.get(edge.target);
+    if (a === undefined || b === undefined) continue;
+    // Map similarity (typically 0.55–1.0) onto a spring weight ~1.5–4.0.
+    const weight = 1.5 + edge.similarity * 2.5;
+    addEdge(a, b, weight, "semantic", edge.similarity);
+    semanticallyConnected.add(a);
+    semanticallyConnected.add(b);
+  }
+
+  // ── Secondary: metadata edges (badge / source-app / import-origin) ──────
+  // These only add structure where semantics didn't already connect nodes.
   // Index nodes by badge name for shared-badge edges.
   const byBadge = new Map<string, number[]>();
   for (let i = 0; i < nodes.length; i++) {
@@ -1120,9 +1200,13 @@ function buildEdges(nodes: GraphNode[]): GraphEdge[] {
     }
   }
 
-  // Same source app
+  // Same source app — fallback only. Sharing a source app (e.g. both copied
+  // from a browser) is not a meaningful relationship, so these edges are only
+  // drawn for nodes that semantics left unconnected, preventing spurious links
+  // like "morning"→"email" from dominating the graph.
   const bySourceApp = new Map<string, number[]>();
   for (let i = 0; i < nodes.length; i++) {
+    if (semanticallyConnected.has(i)) continue;
     const sa = nodes[i]!.entry.source_app?.trim();
     if (!sa) continue;
     const key = sa.toLowerCase();
@@ -1139,9 +1223,10 @@ function buildEdges(nodes: GraphNode[]): GraphEdge[] {
     }
   }
 
-  // Same import origin
+  // Same import origin — fallback only, same rationale as source app.
   const byImport = new Map<string, number[]>();
   for (let i = 0; i < nodes.length; i++) {
+    if (semanticallyConnected.has(i)) continue;
     const origin = nodes[i]!.entry.import_origin?.trim();
     if (!origin) continue;
     if (!byImport.has(origin)) byImport.set(origin, []);
