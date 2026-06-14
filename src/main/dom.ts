@@ -170,6 +170,13 @@ export interface ScribeDom {
   secretMaskerModelSelect: HTMLSelectElement;
   secretMaskerStatusHint: HTMLParagraphElement;
 
+  // Settings - Search Autocomplete
+  autocompleteSettingsModal: HTMLElement;
+  autocompleteEnabledCheckbox: HTMLInputElement;
+  autocompleteConfig: HTMLElement;
+  autocompleteModelSelect: HTMLSelectElement;
+  autocompleteModelHint: HTMLParagraphElement;
+
   // Settings - Local AI Models
   aiModelsSettingsModal: HTMLElement;
   aiStatusList: HTMLDivElement;
@@ -352,6 +359,11 @@ export function createDom(): ScribeDom {
     secretMaskerEnabledCheckbox: byId("secret-masker-enabled-checkbox"),
     secretMaskerModelSelect: byId("secret-masker-model-select"),
     secretMaskerStatusHint: byId("secret-masker-status-hint"),
+    autocompleteSettingsModal: byId("autocomplete-settings-modal"),
+    autocompleteEnabledCheckbox: byId("autocomplete-enabled-checkbox"),
+    autocompleteConfig: byId("autocomplete-config"),
+    autocompleteModelSelect: byId("autocomplete-model-select"),
+    autocompleteModelHint: byId("autocomplete-model-hint"),
 
     // Settings - Local AI Models
     aiModelsSettingsModal: byId("ai-models-settings-modal"),

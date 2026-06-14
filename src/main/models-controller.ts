@@ -11,6 +11,7 @@ import {
   updateEnrichmentModelOptions,
   updateEmbeddingModelOptions,
   updateSecretMaskerModelOptions,
+  updateAutocompleteModelOptions,
   type LocalLlmModelOption,
 } from "./settings-controller";
 
@@ -260,7 +261,7 @@ export function initAiModelsController(
       };
       renderInto(dom.aiModelsLlmList, (kind) => kind.startsWith("llm-"));
       renderInto(dom.aiModelsEmbeddingList, (kind) => kind.startsWith("embedding-"));
-      renderInto(dom.aiModelsMaskerList, (kind) => kind === "secret-masker-onnx");
+      renderInto(dom.aiModelsMaskerList, (kind) => kind.startsWith("secret-masker-"));
 
       const installedOf = (match: (kind: string) => boolean): LocalLlmModelOption[] =>
         models
@@ -268,10 +269,11 @@ export function initAiModelsController(
           .map((m) => ({ id: m.id, label: m.label, path: m.path as string }));
       setInstalledLlmModels(installedOf((kind) => kind.startsWith("llm-")));
       setInstalledEmbeddingModels(installedOf((kind) => kind.startsWith("embedding-")));
-      setInstalledMaskerModels(installedOf((kind) => kind === "secret-masker-onnx"));
+      setInstalledMaskerModels(installedOf((kind) => kind.startsWith("secret-masker-")));
       updateEnrichmentModelOptions(dom, getSettings());
       updateEmbeddingModelOptions(dom, getSettings());
       updateSecretMaskerModelOptions(dom, getSettings());
+      updateAutocompleteModelOptions(dom, getSettings());
     } catch (err) {
       debugLog(`ai-models refresh failed: ${err}`, "ERROR");
       const error = document.createElement("p");

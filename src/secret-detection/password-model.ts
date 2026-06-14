@@ -1,6 +1,8 @@
 /**
  * Secret masker integration via Tauri invoke.
- * Calls the Rust-side DistilBERT ONNX model for NER-based secret detection.
+ * Calls the Rust-side secret-masker engine for token-classification secret
+ * detection. The active model is selectable: DistilBERT (ONNX, BIO) or
+ * DeepPass2 (XLM-RoBERTa, binary, safetensors).
  */
 import { invoke } from "@tauri-apps/api/core";
 

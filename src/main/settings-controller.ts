@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ScribeDom } from "./dom";
-import type { Settings, EmbeddingProvider, EnrichmentProvider } from "../settings";
+import type { Settings, EmbeddingProvider, EnrichmentProvider, AutocompleteProvider } from "../settings";
 import { getDefaultRankingSettings, LOCAL_QWEN_MODEL_ID } from "../settings";
 import { saveSettings } from "../settings";
 import { createProgressBar } from "./progress-bar";
@@ -81,6 +81,11 @@ export function populateSettingsUI(dom: ScribeDom, settings: Settings): void {
   // Secret Masker
   dom.secretMaskerEnabledCheckbox.checked = settings.secretMaskerEnabled;
   updateSecretMaskerModelOptions(dom, settings);
+
+  // Autocomplete
+  dom.autocompleteEnabledCheckbox.checked = settings.autocompleteEnabled;
+  updateAutocompleteModelOptions(dom, settings);
+  updateAutocompleteVisibility(dom, settings.autocompleteEnabled);
 
   updateProviderSetupSections(dom);
   updateEmbeddingVisibility(dom, settings.embeddingProvider);
@@ -271,6 +276,89 @@ export function updateSecretMaskerModelOptions(dom: ScribeDom, settings: Setting
   }
 }
 
+export function updateAutocompleteVisibility(dom: ScribeDom, enabled: boolean): void {
+  dom.autocompleteConfig.hidden = !enabled;
+}
+
+/** Registry id used for the selected local autocomplete model. */
+function selectedAutocompleteLocalId(settings: Settings): string {
+  return settings.autocompleteModel === LOCAL_QWEN_MODEL_ID || !settings.autocompleteModel
+    ? LEGACY_LOCAL_LLM_ID
+    : settings.autocompleteModel;
+}
+
+export function updateAutocompleteModelOptions(dom: ScribeDom, settings: Settings): void {
+  const select = dom.autocompleteModelSelect;
+  select.innerHTML = "";
+
+  // Local models (installed GGUFs discovered by the model manager). Default.
+  const localGroup = document.createElement("optgroup");
+  localGroup.label = "Local Inference (offline)";
+  const isLocalProvider = settings.autocompleteProvider === "local-qwen";
+  const selectedId = selectedAutocompleteLocalId(settings);
+  let matchedSelection = false;
+  for (const model of installedLlmModels) {
+    const opt = document.createElement("option");
+    opt.value = `local-qwen|${model.id}`;
+    opt.textContent = model.label;
+    if (isLocalProvider && model.id === selectedId) {
+      opt.selected = true;
+      matchedSelection = true;
+    }
+    localGroup.appendChild(opt);
+  }
+  if (isLocalProvider && !matchedSelection) {
+    const opt = document.createElement("option");
+    opt.value = `local-qwen|${selectedId}`;
+    opt.textContent = `${selectedId} (not installed)`;
+    opt.selected = true;
+    localGroup.appendChild(opt);
+  } else if (installedLlmModels.length === 0) {
+    const opt = document.createElement("option");
+    opt.value = `local-qwen|${LEGACY_LOCAL_LLM_ID}`;
+    opt.textContent = "Local model (none installed — see Local AI Models)";
+    localGroup.appendChild(opt);
+  }
+  select.appendChild(localGroup);
+
+  // OpenAI
+  const openaiGroup = document.createElement("optgroup");
+  openaiGroup.label = "OpenAI";
+  const openaiModels = settings.providers.openai.modelCache?.chatModels || getFallbackModels("openai", "chat");
+  openaiModels.forEach((model) => {
+    const opt = document.createElement("option");
+    opt.value = `openai|${model}`;
+    opt.textContent = model;
+    if (settings.autocompleteProvider === "openai" && settings.autocompleteModel === model) opt.selected = true;
+    openaiGroup.appendChild(opt);
+  });
+  select.appendChild(openaiGroup);
+
+  // Gemini
+  const geminiGroup = document.createElement("optgroup");
+  geminiGroup.label = "Google Gemini";
+  const geminiModels = settings.providers.gemini.modelCache?.chatModels || getFallbackModels("gemini", "chat");
+  geminiModels.forEach((model) => {
+    const opt = document.createElement("option");
+    opt.value = `gemini|${model}`;
+    opt.textContent = model;
+    if (settings.autocompleteProvider === "gemini" && settings.autocompleteModel === model) opt.selected = true;
+    geminiGroup.appendChild(opt);
+  });
+  select.appendChild(geminiGroup);
+
+  if (isLocalProvider && !matchedSelection) {
+    dom.autocompleteModelHint.textContent =
+      "Selected local model is not installed — open Settings → Local AI Models to download one.";
+  } else if (isLocalProvider) {
+    dom.autocompleteModelHint.textContent =
+      "Runs fully offline. Suggestions appear after a short pause; the first one warms the model.";
+  } else {
+    dom.autocompleteModelHint.textContent =
+      "Cloud completions are billed per keystroke and send partial queries to the provider.";
+  }
+}
+
 export function updateEnrichmentModelOptions(dom: ScribeDom, settings: Settings): void {
   const select = dom.enrichmentUnifiedModelSelect;
   select.innerHTML = "";
@@ -387,6 +475,14 @@ export function readSettingsFromForm(dom: ScribeDom, current: Settings): Setting
       ? installedEmbeddingModels.find((m) => m.id === (embeddingModelValue || ""))?.path ?? ""
       : current.localEmbeddingModelPath;
 
+  const [autocompleteProviderStr, autocompleteModelValue] =
+    dom.autocompleteModelSelect.value.split("|");
+  const autocompleteProvider = (autocompleteProviderStr || "local-qwen") as AutocompleteProvider;
+  const autocompleteModelPath =
+    autocompleteProvider === "local-qwen"
+      ? installedLlmModels.find((m) => m.id === (autocompleteModelValue || ""))?.path ?? ""
+      : current.autocompleteModelPath;
+
   return {
     ...current,
     clipboardMonitoring: dom.clipboardMonitoringCheckbox.checked,
@@ -426,6 +522,10 @@ export function readSettingsFromForm(dom: ScribeDom, current: Settings): Setting
     trufflehogPath: dom.trufflehogPathInput.value.trim(),
     secretMaskerEnabled: dom.secretMaskerEnabledCheckbox.checked,
     secretMaskerModelPath: dom.secretMaskerModelSelect.value,
+    autocompleteEnabled: dom.autocompleteEnabledCheckbox.checked,
+    autocompleteProvider,
+    autocompleteModel: autocompleteModelValue || "",
+    autocompleteModelPath,
   };
 }
 

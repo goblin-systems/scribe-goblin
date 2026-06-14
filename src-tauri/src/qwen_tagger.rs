@@ -96,7 +96,7 @@ fn default_model_dir() -> PathBuf {
         .join(QWEN_MODEL_DIR)
 }
 
-fn model_id_for_path(path: &Path) -> String {
+pub(crate) fn model_id_for_path(path: &Path) -> String {
     if path.is_dir() {
         // HF cache snapshot dirs look like .../models--Org--Name/snapshots/<rev>;
         // recover the human-readable repo name when present.
@@ -116,7 +116,7 @@ fn model_id_for_path(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
-async fn load_model(path: &Path) -> Result<Model, String> {
+pub(crate) async fn load_model(path: &Path) -> Result<Model, String> {
     let is_gguf = path.is_file()
         && path
             .extension()
@@ -171,7 +171,7 @@ pub struct QwenStatus {
     pub model_exists: bool,
 }
 
-fn missing_model_error(path: &Path) -> String {
+pub(crate) fn missing_model_error(path: &Path) -> String {
     format!(
         "Local LLM model file not found at {}. Open Settings → Local AI Models to download one.",
         path.display()

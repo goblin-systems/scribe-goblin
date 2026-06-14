@@ -22,6 +22,7 @@ import { formatBytes, formatImportOrigin, isAttachmentOnlyEntry, overlayFooterHi
 import { loadSettings, type Settings } from "./settings";
 import { searchEntries } from "./main/search-controller";
 import { getShortcutDisplayLabel } from "./shortcuts";
+import { attachAutocomplete } from "./autocomplete";
 
 const BADGE_TONE_CLASS_BY_COLOR: Record<string, string> = {
   default: "overlay-badge--default",
@@ -518,6 +519,10 @@ searchInput.oninput = () => {
   void loadEntries(searchInput.value);
 };
 
+const overlayAutocomplete = attachAutocomplete(searchInput, {
+  getSettings: () => currentSettings,
+});
+
 window.onkeydown = (e) => {
   switch (getOverlayKeydownAction({
     key: e.key,
@@ -600,12 +605,16 @@ listen("show-overlay", async (event: { payload?: { x?: number; y?: number } }) =
   resetOverlayTransientState();
   searchInput.value = "";
   selectedIndex = 0;
+  // Pick up settings the user may have changed in the main window.
+  currentSettings = await loadSettings();
+  overlayAutocomplete.refresh();
   await loadEntries();
   searchInput.focus();
 });
 
 listen("entries-changed", async () => {
   currentSettings = await loadSettings();
+  overlayAutocomplete.refresh();
   updateFooterShortcutLabels();
   await refreshEntries();
 });

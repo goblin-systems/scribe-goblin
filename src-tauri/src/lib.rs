@@ -1,3 +1,4 @@
+mod autocomplete;
 mod classifier;
 mod clipboard;
 mod db;
@@ -87,6 +88,8 @@ pub fn run() {
             qwen_tagger::qwen_generate_tags,
             qwen_tagger::qwen_status,
             qwen_tagger::qwen_prefetch,
+            autocomplete::autocomplete_complete,
+            autocomplete::autocomplete_prefetch,
             trufflehog::trufflehog_check,
             trufflehog::trufflehog_scan,
             secret_masker::secret_masker_scan,
@@ -174,7 +177,10 @@ pub fn run() {
                     .join("qwen-25-05b")
                     .join("qwen2.5-0.5b-instruct-q4_0.gguf")
             });
-            app.manage(qwen_tagger::QwenTaggerState::new(llm_model_path));
+            app.manage(qwen_tagger::QwenTaggerState::new(llm_model_path.clone()));
+            // Autocomplete shares the default LLM path but keeps its own slot so
+            // its model can differ from the enrichment model without thrashing.
+            app.manage(autocomplete::AutocompleteState::new(llm_model_path));
 
             app.manage(models::ModelsState::new(models_dir, final_path.clone()));
 

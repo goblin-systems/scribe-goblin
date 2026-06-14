@@ -124,6 +124,10 @@
                 <span class="nav-option-icon"><i data-lucide="shield-check"></i></span>
                 <span class="nav-option-label">Secret Detection</span>
               </button>
+              <button class="nav-option" type="button" data-nav-id="open-autocomplete-settings">
+                <span class="nav-option-icon"><i data-lucide="text-cursor-input"></i></span>
+                <span class="nav-option-label">Autocomplete</span>
+              </button>
               <div class="nav-divider"></div>
               <button class="nav-option" type="button" data-nav-id="open-debug-settings">
                 <span class="nav-option-icon"><i data-lucide="bug"></i></span>
@@ -756,6 +760,37 @@
                 <p id="secret-masker-status-hint" class="hint" style="margin-top:4px;"></p>
               </div>
             </section>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search Autocomplete Settings -->
+      <div id="autocomplete-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="autocomplete-settings-title">
+          <div class="modal-header">
+            <h3 id="autocomplete-settings-title">Search Autocomplete</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="hint">Show an inline suggestion in pale text after the cursor as you type in the search boxes (main window and the overlay). Press <kbd>Tab</kbd> to accept.</p>
+
+            <label class="checkbox-label" style="margin-top:10px;">
+              <input id="autocomplete-enabled-checkbox" type="checkbox" />
+              <span>Enable search autocomplete</span>
+            </label>
+
+            <div id="autocomplete-config" hidden>
+              <div class="field-block" style="margin-top:12px;">
+                <label class="field-label" for="autocomplete-model-select">Model</label>
+                <select id="autocomplete-model-select" class="select-field" style="flex:1;"></select>
+                <p id="autocomplete-model-hint" class="hint" style="margin-top:4px;"></p>
+              </div>
+            </div>
           </div>
           <div class="modal-footer">
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>

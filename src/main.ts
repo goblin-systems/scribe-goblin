@@ -29,11 +29,14 @@ import {
   updateEnrichmentVisibility,
   updateEmbeddingModelOptions,
   updateEnrichmentModelOptions,
+  updateAutocompleteModelOptions,
+  updateAutocompleteVisibility,
   scheduleAutosave,
   cancelAutosave,
   readSettingsFromForm,
   wireReembedAllButton,
 } from "./main/settings-controller";
+import { attachAutocomplete, type AutocompleteHandle } from "./autocomplete";
 import {
   addNote,
   clearCollectionSelection,
@@ -1238,6 +1241,12 @@ async function init() {
   getImportMetaHot()?.dispose(() => unregisterOverlayShortcut(overlayShortcutBinding));
 
   // ── Search ────────────────────────────────────────────────────────────────
+  const autocompleteHandles: AutocompleteHandle[] = [
+    attachAutocomplete(dom.searchInput, { getSettings }),
+    attachAutocomplete(dom.clipboardSearchInput, { getSettings }),
+  ];
+  const refreshAutocomplete = () => autocompleteHandles.forEach((h) => h.refresh());
+
   dom.searchInput.addEventListener("input", () => {
     handleCollectionSearchInput(dom.searchInput.value);
   });
@@ -1620,6 +1629,9 @@ async function init() {
             invoke("stop_clipboard_monitor");
           }
         }
+
+        // Autocomplete enabled/model may have changed.
+        refreshAutocomplete();
       },
       delayMs,
       (updated) => {
@@ -1627,6 +1639,7 @@ async function init() {
         updateEmbeddingVisibility(dom, updated.embeddingProvider);
         updateEmbeddingModelOptions(dom, updated);
         updateEnrichmentModelOptions(dom, updated);
+        updateAutocompleteModelOptions(dom, updated);
 
         if (rankingChanged(updated, currentSettings)) {
           rerankActiveSearches(updated);
@@ -1716,6 +1729,13 @@ async function init() {
   dom.secretMaskerModelSelect.addEventListener("change", () =>
     onSettingsChange(0),
   );
+
+  // Search Autocomplete
+  dom.autocompleteEnabledCheckbox.addEventListener("change", () => {
+    updateAutocompleteVisibility(dom, dom.autocompleteEnabledCheckbox.checked);
+    onSettingsChange(0);
+  });
+  dom.autocompleteModelSelect.addEventListener("change", () => onSettingsChange(0));
 
   // TruffleHog download link (opens in the system browser)
   dom.trufflehogDownloadLink.addEventListener("click", (event) => {
