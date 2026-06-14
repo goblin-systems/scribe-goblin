@@ -1,6 +1,9 @@
 mod autocomplete;
 mod classifier;
 mod clipboard;
+mod inference;
+#[cfg(feature = "llamacpp")]
+mod llamacpp;
 mod db;
 mod debug_log;
 mod heuristics;
@@ -90,6 +93,8 @@ pub fn run() {
             qwen_tagger::qwen_prefetch,
             autocomplete::autocomplete_complete,
             autocomplete::autocomplete_prefetch,
+            inference::inference_capabilities,
+            inference::inference_test,
             trufflehog::trufflehog_check,
             trufflehog::trufflehog_scan,
             secret_masker::secret_masker_scan,

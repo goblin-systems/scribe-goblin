@@ -8,6 +8,14 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:dev:vulkan": "tauri dev --features llamacpp-vulkan",
+    "tauri:dev:cuda": "tauri dev --features llamacpp-cuda",
+    "tauri:dev:rocm": "tauri dev --features llamacpp-rocm",
+    "tauri:build": "tauri build",
+    "tauri:build:vulkan": "tauri build --features llamacpp-vulkan",
+    "tauri:build:cuda": "tauri build --features llamacpp-cuda",
+    "tauri:build:rocm": "tauri build --features llamacpp-rocm",
     "test": "vitest run"
   },
   "dependencies": {

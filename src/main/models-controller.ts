@@ -238,6 +238,7 @@ export function initAiModelsController(
       const [status, models] = await Promise.all([
         invoke<AiStatusReport>("ai_status", {
           llmModelPath: settings.localLlmModelPath?.trim() || null,
+          llmEngine: settings.inferenceEngine,
           embeddingModelPath: settings.localEmbeddingModelPath?.trim() || null,
           secretMaskerModelPath: settings.secretMaskerModelPath?.trim() || null,
         }),
@@ -353,6 +354,7 @@ export function initAiModelsController(
     try {
       const status = await invoke<AiStatusReport>("ai_status", {
         llmModelPath: settings.localLlmModelPath?.trim() || null,
+        llmEngine: settings.inferenceEngine,
         embeddingModelPath: settings.localEmbeddingModelPath?.trim() || null,
         secretMaskerModelPath: settings.secretMaskerModelPath?.trim() || null,
       });

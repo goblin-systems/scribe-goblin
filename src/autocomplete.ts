@@ -9,6 +9,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import type { Settings } from "./settings";
+import { normalizeSearchEntryResults, type SearchEntryResultPayload } from "./store";
 
 export interface AutocompleteHandle {
   /** Re-evaluate enabled state / refresh the suggestion for the current value. */
@@ -28,9 +29,46 @@ const SYSTEM_PROMPT =
   "no quotes, no explanation, no list, no markdown. Your reply MUST begin with the user's exact " +
   "input text and then continue it. Finish the current word and add at most a few more words.";
 
+/** How many matching records to feed as grounding context, and how much of each. */
+const CONTEXT_RECORDS = 6;
+const CONTEXT_SNIPPET_CHARS = 200;
+const CONTEXT_TOTAL_CHARS = 1200;
+
 interface HttpProxyResponse {
   status: number;
   body: string;
+}
+
+/** Fetch the user's currently-matching records (cheap keyword search) to ground
+ *  the completion in their actual history. Empty string on any failure. */
+async function fetchContext(prefix: string, settings: Settings): Promise<string> {
+  try {
+    const results = await invoke<SearchEntryResultPayload[]>("search_entries", {
+      query: prefix,
+      filters: {},
+      limit: CONTEXT_RECORDS,
+      mode: "keyword",
+      queryEmbedding: null,
+      rankingConfig: settings.ranking,
+    });
+    const lines = normalizeSearchEntryResults(results)
+      .map((r) => r.entry.content.replace(/\s+/g, " ").trim().slice(0, CONTEXT_SNIPPET_CHARS))
+      .filter((s) => s.length > 0);
+    return lines.join("\n").slice(0, CONTEXT_TOTAL_CHARS);
+  } catch {
+    return "";
+  }
+}
+
+/** System prompt augmented with the matching records as grounding. */
+function systemWithContext(context: string): string {
+  if (!context) return SYSTEM_PROMPT;
+  return (
+    `${SYSTEM_PROMPT}\n\n` +
+    "These are the user's matching saved entries — use them as grounding so the completion " +
+    "reflects their actual history. Prefer continuations consistent with them, but you may " +
+    `extend beyond them when sensible:\n${context}`
+  );
 }
 
 // ── Suffix extraction (mirrors the Rust `completion_suffix`) ────────────────
@@ -53,22 +91,27 @@ export function completionSuffix(prefix: string, completion: string): string {
 // ── Model calls ─────────────────────────────────────────────────────────────
 
 async function requestCompletion(prefix: string, settings: Settings): Promise<string> {
+  // Ground the completion in the user's actual matching records.
+  const context = await fetchContext(prefix, settings);
   switch (settings.autocompleteProvider) {
     case "local-qwen":
       return invoke<string>("autocomplete_complete", {
         prefix,
+        context: context || null,
         modelPath: settings.autocompleteModelPath?.trim() || null,
+        engine: settings.inferenceEngine,
+        gpuLayers: settings.inferenceGpuLayers,
       });
     case "openai":
-      return cloudOpenAI(prefix, settings);
+      return cloudOpenAI(prefix, context, settings);
     case "gemini":
-      return cloudGemini(prefix, settings);
+      return cloudGemini(prefix, context, settings);
     default:
       return "";
   }
 }
 
-async function cloudOpenAI(prefix: string, settings: Settings): Promise<string> {
+async function cloudOpenAI(prefix: string, context: string, settings: Settings): Promise<string> {
   const apiKey = settings.providers.openai.apiKey;
   if (!apiKey) return "";
   const res = await invoke<HttpProxyResponse>("http_fetch", {
@@ -79,7 +122,7 @@ async function cloudOpenAI(prefix: string, settings: Settings): Promise<string> 
       body: JSON.stringify({
         model: settings.autocompleteModel || "gpt-4o-mini",
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemWithContext(context) },
           { role: "user", content: prefix },
         ],
         temperature: 0,
@@ -92,7 +135,7 @@ async function cloudOpenAI(prefix: string, settings: Settings): Promise<string> 
   return completionSuffix(prefix, json.choices?.[0]?.message?.content ?? "");
 }
 
-async function cloudGemini(prefix: string, settings: Settings): Promise<string> {
+async function cloudGemini(prefix: string, context: string, settings: Settings): Promise<string> {
   const apiKey = settings.providers.gemini.apiKey;
   if (!apiKey) return "";
   const model = settings.autocompleteModel || "gemini-2.5-flash";
@@ -102,7 +145,7 @@ async function cloudGemini(prefix: string, settings: Settings): Promise<string> 
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: `${SYSTEM_PROMPT}\n\nPartial query:\n${prefix}` }] }],
+        contents: [{ parts: [{ text: `${systemWithContext(context)}\n\nPartial query:\n${prefix}` }] }],
         generationConfig: { temperature: 0, maxOutputTokens: 16 },
       }),
     },
@@ -304,10 +347,13 @@ export function attachAutocomplete(
     }
   };
   const onFocus = () => {
-    if (isEnabled() && !prefetched && options.getSettings()?.autocompleteProvider === "local-qwen") {
+    const settings = options.getSettings();
+    if (isEnabled() && !prefetched && settings?.autocompleteProvider === "local-qwen") {
       prefetched = true;
       void invoke("autocomplete_prefetch", {
-        modelPath: options.getSettings()?.autocompleteModelPath?.trim() || null,
+        modelPath: settings.autocompleteModelPath?.trim() || null,
+        engine: settings.inferenceEngine,
+        gpuLayers: settings.inferenceGpuLayers,
       }).catch(() => {});
     }
     update();

@@ -255,6 +255,8 @@ async function enrichWithLocalQwen(
         systemPrompt: mode === "summary" ? SUMMARY_PROMPT : TAGGING_PROMPT,
         maxTokens: mode === "summary" ? 48 : 32,
         modelPath,
+        engine: settings.inferenceEngine,
+        gpuLayers: settings.inferenceGpuLayers,
       });
     } finally {
       pendingTimers.forEach((timer) => globalThis.clearTimeout(timer));

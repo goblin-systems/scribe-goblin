@@ -177,6 +177,15 @@ export interface ScribeDom {
   autocompleteModelSelect: HTMLSelectElement;
   autocompleteModelHint: HTMLParagraphElement;
 
+  // Settings - Inference Engine
+  inferenceSettingsModal: HTMLElement;
+  inferenceEngineSelect: HTMLSelectElement;
+  inferenceBackendHint: HTMLParagraphElement;
+  inferenceGpuLayersRow: HTMLElement;
+  inferenceGpuLayersInput: HTMLInputElement;
+  inferenceTestBtn: HTMLButtonElement;
+  inferenceTestResult: HTMLElement;
+
   // Settings - Local AI Models
   aiModelsSettingsModal: HTMLElement;
   aiStatusList: HTMLDivElement;
@@ -364,6 +373,13 @@ export function createDom(): ScribeDom {
     autocompleteConfig: byId("autocomplete-config"),
     autocompleteModelSelect: byId("autocomplete-model-select"),
     autocompleteModelHint: byId("autocomplete-model-hint"),
+    inferenceSettingsModal: byId("inference-settings-modal"),
+    inferenceEngineSelect: byId("inference-engine-select"),
+    inferenceBackendHint: byId("inference-backend-hint"),
+    inferenceGpuLayersRow: byId("inference-gpu-layers-row"),
+    inferenceGpuLayersInput: byId("inference-gpu-layers-input"),
+    inferenceTestBtn: byId("inference-test-btn"),
+    inferenceTestResult: byId("inference-test-result"),
 
     // Settings - Local AI Models
     aiModelsSettingsModal: byId("ai-models-settings-modal"),

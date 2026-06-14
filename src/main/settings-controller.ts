@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { ScribeDom } from "./dom";
-import type { Settings, EmbeddingProvider, EnrichmentProvider, AutocompleteProvider } from "../settings";
+import type { Settings, EmbeddingProvider, EnrichmentProvider, AutocompleteProvider, InferenceEngine } from "../settings";
 import { getDefaultRankingSettings, LOCAL_QWEN_MODEL_ID } from "../settings";
 import { saveSettings } from "../settings";
 import { createProgressBar } from "./progress-bar";
@@ -526,6 +526,8 @@ export function readSettingsFromForm(dom: ScribeDom, current: Settings): Setting
     autocompleteProvider,
     autocompleteModel: autocompleteModelValue || "",
     autocompleteModelPath,
+    inferenceEngine: (dom.inferenceEngineSelect.value as InferenceEngine) || current.inferenceEngine,
+    inferenceGpuLayers: Math.max(0, Math.floor(Number(dom.inferenceGpuLayersInput.value) || 0)),
   };
 }
 

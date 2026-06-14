@@ -1,2 +1,13 @@
 [build]
 target-dir = "target"
+
+# The `llamacpp*` cargo features build ggml/llama.cpp from source via CMake.
+# On Windows the default Visual Studio/MSBuild generator fails while building the
+# `vulkan-shaders-gen` helper ("cannot find the batch label specified - VCEnd").
+# Ninja sidesteps that batch machinery and is the recommended generator for
+# llama.cpp on Windows. This is inert for the default build (it has no CMake
+# dependency) and only kicks in for llamacpp builds. Requires Ninja on PATH
+# (one-time: `winget install Ninja-build.Ninja`). It does not override a
+# CMAKE_GENERATOR you set yourself in the environment.
+[env]
+CMAKE_GENERATOR = "Ninja"

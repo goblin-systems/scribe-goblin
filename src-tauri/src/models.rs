@@ -708,6 +708,7 @@ pub struct AiStatusReport {
 #[tauri::command]
 pub fn ai_status(
     llm_model_path: Option<String>,
+    llm_engine: Option<String>,
     embedding_model_path: Option<String>,
     secret_masker_model_path: Option<String>,
     models_state: State<'_, ModelsState>,
@@ -771,8 +772,16 @@ pub fn ai_status(
         },
         llm: EngineStatus {
             name: "Local LLM (tags & summaries)".to_string(),
-            engine: "mistral.rs 0.8 (candle)".to_string(),
-            backend: candle_backend(),
+            engine: match crate::inference::EngineKind::parse(llm_engine.as_deref()) {
+                crate::inference::EngineKind::LlamaCpp => "llama.cpp".to_string(),
+                crate::inference::EngineKind::MistralRs => "mistral.rs 0.8 (candle)".to_string(),
+            },
+            backend: match crate::inference::EngineKind::parse(llm_engine.as_deref()) {
+                crate::inference::EngineKind::LlamaCpp => crate::inference::llamacpp_backend()
+                    .unwrap_or("unavailable")
+                    .to_string(),
+                crate::inference::EngineKind::MistralRs => candle_backend(),
+            },
             loaded: qwen
                 .loaded_model_path()
                 .map(|p| p == llm_path)

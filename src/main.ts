@@ -37,6 +37,7 @@ import {
   wireReembedAllButton,
 } from "./main/settings-controller";
 import { attachAutocomplete, type AutocompleteHandle } from "./autocomplete";
+import { initInferenceController } from "./main/inference-controller";
 import {
   addNote,
   clearCollectionSelection,
@@ -521,6 +522,9 @@ async function init() {
   });
 
   const aiModelsController = initAiModelsController(dom, getSettings);
+  const inferenceController = initInferenceController(dom, getSettings, () =>
+    onSettingsChange(0),
+  );
   const shell = setupShell({
     dom,
     getSettings,
@@ -528,11 +532,13 @@ async function init() {
     onOpenQuickAdd: openQuickAdd,
     onOpenShortcutsSettings: () => shortcutsController.openShortcutsSettings(),
     onOpenAiModelsSettings: () => void aiModelsController.refresh(),
+    onOpenInferenceSettings: () => void inferenceController.refresh(),
   });
   await shell.applySettingsToUI(currentSettings);
   await initImportController(dom);
 
   populateSettingsUI(dom, currentSettings);
+  void inferenceController.refresh();
   updateRuntimeShortcutLabels(dom);
   wireReembedAllButton(dom, getSettings);
 

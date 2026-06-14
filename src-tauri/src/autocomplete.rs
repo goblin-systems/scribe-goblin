@@ -1,25 +1,24 @@
-//! Local LLM-backed search autocomplete.
+//! Local-LLM-backed search autocomplete.
 //!
-//! Generates a short continuation of a partial search query using a local
-//! mistral.rs model. It keeps its own model slot (separate from the tagging
-//! LLM in `qwen_tagger`) so switching the autocomplete model never thrashes the
-//! enrichment model, at the cost of a second model resident in memory when the
-//! two differ. Cloud completion (OpenAI/Gemini) is handled on the frontend via
-//! the HTTP proxy; this module only serves the offline path.
+//! Generates a short continuation of a partial search query. The actual
+//! generation runs through `inference`, so it works with either engine
+//! (mistral.rs or llama.cpp) and any GPU offload the user selected. This engine
+//! keeps its own model slot (separate from the tagging LLM in `qwen_tagger`) so
+//! switching the autocomplete model never thrashes the enrichment model. Cloud
+//! completion (OpenAI/Gemini) is handled on the frontend via the HTTP proxy;
+//! this module only serves the offline path.
 
 use crate::debug_log::{write_debug_log_internal, DebugLogState};
-use crate::qwen_tagger::{load_model, missing_model_error};
-use mistralrs::{Model, RequestBuilder, Response, StopTokens, TextMessageRole};
+use crate::inference::{self, EngineKind, GenRequest, LoadedEngine};
+use crate::qwen_tagger::missing_model_error;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex as StdMutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tauri::{AppHandle, State};
 use tokio::sync::Mutex as AsyncMutex;
-use tokio::time::timeout;
 
 /// Completions are short by construction — finish the current word plus a few.
 const MAX_TOKENS: usize = 16;
-const INFERENCE_TIMEOUT: Duration = Duration::from_secs(20);
 /// Don't bother the model with near-empty prefixes.
 const MIN_PREFIX_CHARS: usize = 2;
 /// Cap the suffix we hand back to the ghost overlay.
@@ -30,16 +29,36 @@ Reply with ONLY the single most likely completed query as plain text and nothing
 Your reply MUST begin with the user's exact input text and then continue it. \
 Finish the current word and add at most a few more words.";
 
-struct LoadedLlm {
-    path: PathBuf,
-    model: Model,
+/// Grounding preamble appended to the system prompt when matching records exist.
+const CONTEXT_PREAMBLE: &str = "\n\nThese are the user's matching saved entries — use them as grounding so the \
+completion reflects their actual history. Prefer continuations consistent with them, but you may extend beyond them when sensible:\n";
+
+/// Cap the grounding context so the prompt stays small/fast.
+const MAX_CONTEXT_CHARS: usize = 1200;
+
+fn system_prompt_with_context(context: Option<&str>) -> String {
+    match context.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(ctx) => {
+            let ctx: String = ctx.chars().take(MAX_CONTEXT_CHARS).collect();
+            format!("{SYSTEM_PROMPT}{CONTEXT_PREAMBLE}{ctx}")
+        }
+        None => SYSTEM_PROMPT.to_string(),
+    }
 }
 
-/// Reloadable autocomplete model state, mirroring `QwenTaggerState` but with its
-/// own slot so the two engines don't evict each other.
+/// A loaded engine, keyed on everything that would require a reload.
+struct LoadedSlot {
+    path: PathBuf,
+    kind: EngineKind,
+    gpu_layers: u32,
+    engine: LoadedEngine,
+}
+
+/// Reloadable autocomplete model state with its own slot so it doesn't evict
+/// the enrichment model.
 pub struct AutocompleteState {
     default_model_path: PathBuf,
-    inner: AsyncMutex<Option<LoadedLlm>>,
+    inner: AsyncMutex<Option<LoadedSlot>>,
     loaded_path: StdMutex<Option<PathBuf>>,
 }
 
@@ -66,22 +85,29 @@ impl AutocompleteState {
         }
     }
 
-    /// Load `path` into the slot if a different model (or nothing) is loaded.
+    /// Load the model into the slot if the path, engine, or GPU offload changed.
     async fn ensure_loaded<'a>(
         &'a self,
         path: &Path,
-    ) -> Result<tokio::sync::MutexGuard<'a, Option<LoadedLlm>>, String> {
+        kind: EngineKind,
+        gpu_layers: u32,
+    ) -> Result<tokio::sync::MutexGuard<'a, Option<LoadedSlot>>, String> {
         let mut guard = self.inner.lock().await;
-        let needs_load = guard.as_ref().map(|llm| llm.path != path).unwrap_or(true);
+        let needs_load = guard
+            .as_ref()
+            .map(|slot| slot.path != path || slot.kind != kind || slot.gpu_layers != gpu_layers)
+            .unwrap_or(true);
         if needs_load {
             if guard.is_some() {
                 *guard = None;
                 self.set_loaded_path(None);
             }
-            let model = load_model(path).await?;
-            *guard = Some(LoadedLlm {
+            let engine = inference::load_engine(path, kind, gpu_layers).await?;
+            *guard = Some(LoadedSlot {
                 path: path.to_path_buf(),
-                model,
+                kind,
+                gpu_layers,
+                engine,
             });
             self.set_loaded_path(Some(path.to_path_buf()));
         }
@@ -93,15 +119,13 @@ impl AutocompleteState {
 /// case-insensitively. Returns an empty string when the model didn't echo the
 /// prefix (so the caller shows no ghost rather than garbage).
 fn completion_suffix(prefix: &str, completion: &str) -> String {
-    // Models sometimes wrap the answer in quotes or a code fence; strip those.
     let cleaned = completion
         .trim()
         .trim_matches(|c| c == '"' || c == '`' || c == '\'')
         .trim_start();
-    // Only the first line is a query continuation.
     let cleaned = cleaned.lines().next().unwrap_or("");
 
-    let mut idx = 0usize; // byte offset into `cleaned`
+    let mut idx = 0usize;
     for pc in prefix.chars() {
         let rest = &cleaned[idx..];
         let Some(rc) = rest.chars().next() else {
@@ -123,7 +147,10 @@ fn chars_eq_ci(a: char, b: char) -> bool {
 #[tauri::command]
 pub async fn autocomplete_complete(
     prefix: String,
+    context: Option<String>,
     model_path: Option<String>,
+    engine: Option<String>,
+    gpu_layers: Option<u32>,
     app: AppHandle,
     state: State<'_, AutocompleteState>,
     debug_state: State<'_, DebugLogState>,
@@ -132,12 +159,15 @@ pub async fn autocomplete_complete(
         return Ok(String::new());
     }
 
+    let kind = EngineKind::parse(engine.as_deref());
+    let gpu_layers = gpu_layers.unwrap_or(0);
     let path = state.resolve_model_path(model_path.as_deref());
     if !path.exists() {
         return Err(missing_model_error(&path));
     }
 
-    let guard = state.ensure_loaded(&path).await.map_err(|err| {
+    let started = Instant::now();
+    let guard = state.ensure_loaded(&path, kind, gpu_layers).await.map_err(|err| {
         write_debug_log_internal(
             &app,
             &debug_state,
@@ -146,86 +176,32 @@ pub async fn autocomplete_complete(
         );
         err
     })?;
-    let model = &guard.as_ref().expect("model loaded above").model;
+    let slot = guard.as_ref().expect("engine loaded above");
 
-    let request = RequestBuilder::new()
-        .set_deterministic_sampler()
-        .set_sampler_stop_toks(StopTokens::Seqs(vec!["<|im_end|>".to_string()]))
-        .set_sampler_max_len(MAX_TOKENS)
-        .add_message(TextMessageRole::System, SYSTEM_PROMPT)
-        .add_message(TextMessageRole::User, prefix.clone());
-
-    let started = Instant::now();
-    let mut stream = model
-        .stream_chat_request(request)
-        .await
-        .map_err(|e| format!("Autocomplete stream start failed: {e}"))?;
-
-    let mut raw = String::new();
-    let stream_result = timeout(INFERENCE_TIMEOUT, async {
-        while let Some(response) = stream.next().await {
-            match response {
-                Response::Chunk(chunk) => {
-                    if let Some(delta) = chunk
-                        .choices
-                        .first()
-                        .and_then(|choice| choice.delta.content.clone())
-                    {
-                        raw.push_str(&delta);
-                    }
-                    if chunk
-                        .choices
-                        .first()
-                        .and_then(|choice| choice.finish_reason.clone())
-                        .map(|reason| reason != "null")
-                        .unwrap_or(false)
-                    {
-                        break;
-                    }
-                }
-                Response::Done(done) => {
-                    if let Some(content) = done
-                        .choices
-                        .first()
-                        .and_then(|choice| choice.message.content.clone())
-                    {
-                        raw.push_str(&content);
-                    }
-                    break;
-                }
-                Response::ModelError(message, _) => return Err(format!("model error: {message}")),
-                Response::InternalError(err) => return Err(format!("internal error: {err}")),
-                Response::ValidationError(err) => return Err(format!("validation error: {err}")),
-                _ => {}
-            }
-        }
-        Ok(())
-    })
+    let output = inference::generate(
+        &slot.engine,
+        GenRequest {
+            system: system_prompt_with_context(context.as_deref()),
+            user: prefix.clone(),
+            max_tokens: MAX_TOKENS,
+            stop: vec!["<|im_end|>".to_string()],
+        },
+    )
     .await;
-
-    // Free the model lock before logging/parsing.
     drop(guard);
 
-    match stream_result {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => {
-            let err = format!("Autocomplete inference failed: {err}");
-            write_debug_log_internal(&app, &debug_state, "ERROR", &err);
-            return Err(err);
-        }
-        Err(_) => {
-            // A timeout is best-effort here: return whatever we collected.
+    let raw = match output {
+        Ok(out) => out.text,
+        Err(err) => {
             write_debug_log_internal(
                 &app,
                 &debug_state,
                 "WARN",
-                &format!(
-                    "autocomplete_complete timed out after {}s",
-                    INFERENCE_TIMEOUT.as_secs()
-                ),
+                &format!("autocomplete_complete generation failed: {err}"),
             );
+            return Err(err);
         }
-    }
+    };
 
     let suffix = completion_suffix(&prefix, &raw);
     write_debug_log_internal(
@@ -233,7 +209,8 @@ pub async fn autocomplete_complete(
         &debug_state,
         "INFO",
         &format!(
-            "autocomplete_complete: prefix_chars={}, suffix_chars={}, took_ms={}",
+            "autocomplete_complete: engine={}, prefix_chars={}, suffix_chars={}, took_ms={}",
+            kind.as_str(),
             prefix.chars().count(),
             suffix.chars().count(),
             started.elapsed().as_millis(),
@@ -246,13 +223,17 @@ pub async fn autocomplete_complete(
 #[tauri::command]
 pub async fn autocomplete_prefetch(
     model_path: Option<String>,
+    engine: Option<String>,
+    gpu_layers: Option<u32>,
     state: State<'_, AutocompleteState>,
 ) -> Result<(), String> {
+    let kind = EngineKind::parse(engine.as_deref());
+    let gpu_layers = gpu_layers.unwrap_or(0);
     let path = state.resolve_model_path(model_path.as_deref());
     if !path.exists() {
         return Err(missing_model_error(&path));
     }
-    let _guard = state.ensure_loaded(&path).await?;
+    let _guard = state.ensure_loaded(&path, kind, gpu_layers).await?;
     Ok(())
 }
 
@@ -286,16 +267,22 @@ mod tests {
     }
 
     #[test]
+    fn system_prompt_appends_context_when_present() {
+        assert_eq!(system_prompt_with_context(None), SYSTEM_PROMPT);
+        assert_eq!(system_prompt_with_context(Some("   ")), SYSTEM_PROMPT);
+        let p = system_prompt_with_context(Some("rust tauri notes"));
+        assert!(p.starts_with(SYSTEM_PROMPT));
+        assert!(p.contains("rust tauri notes"));
+    }
+
+    #[test]
     fn resolve_prefers_explicit_path() {
         let state = AutocompleteState::new(PathBuf::from("/default.gguf"));
         assert_eq!(
             state.resolve_model_path(Some("/custom.gguf")),
             PathBuf::from("/custom.gguf"),
         );
-        assert_eq!(
-            state.resolve_model_path(None),
-            PathBuf::from("/default.gguf"),
-        );
+        assert_eq!(state.resolve_model_path(None), PathBuf::from("/default.gguf"));
         assert_eq!(
             state.resolve_model_path(Some("  ")),
             PathBuf::from("/default.gguf"),

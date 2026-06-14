@@ -6,6 +6,9 @@ export type EnrichmentProvider = "none" | "openai" | "gemini" | "local-qwen";
 /** Autocomplete always uses a real model when enabled (enable/disable is a
  *  separate toggle), so unlike enrichment there is no "none" provider. */
 export type AutocompleteProvider = "openai" | "gemini" | "local-qwen";
+/** Which local LLM engine runs offline generation (tagging + autocomplete).
+ *  "llamacpp" is only usable on builds compiled with the llamacpp feature. */
+export type InferenceEngine = "mistralrs" | "llamacpp";
 
 export const LOCAL_QWEN_MODEL_ID = "qwen2.5-0.5b-instruct";
 
@@ -92,6 +95,11 @@ export interface Settings {
    *  "local-qwen". Empty string = the default/bundled LLM location. */
   autocompleteModelPath: string;
 
+  // Local inference engine (applies to local LLM tagging + autocomplete)
+  inferenceEngine: InferenceEngine;
+  /** GPU layers to offload (llama.cpp only). 0 = CPU; higher = more on GPU. */
+  inferenceGpuLayers: number;
+
   // Editable shortcut overrides
   shortcutOverrides: ShortcutOverrides;
 }
@@ -138,6 +146,8 @@ const DEFAULTS: Settings = {
   autocompleteProvider: "local-qwen",
   autocompleteModel: LOCAL_QWEN_MODEL_ID,
   autocompleteModelPath: "",
+  inferenceEngine: "mistralrs",
+  inferenceGpuLayers: 0,
   shortcutOverrides: {},
 };
 
@@ -213,6 +223,9 @@ export async function loadSettings(): Promise<Settings> {
   settings.autocompleteModel = (await read<string>("autocompleteModel")) ?? settings.autocompleteModel;
   settings.autocompleteModelPath = (await read<string>("autocompleteModelPath")) ?? settings.autocompleteModelPath;
 
+  settings.inferenceEngine = (await read<InferenceEngine>("inferenceEngine")) ?? settings.inferenceEngine;
+  settings.inferenceGpuLayers = (await read<number>("inferenceGpuLayers")) ?? settings.inferenceGpuLayers;
+
   settings.shortcutOverrides = sanitizeShortcutOverrides(
     await read<Record<string, unknown>>("shortcutOverrides"),
   );
@@ -242,6 +255,8 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await s.set("autocompleteProvider", settings.autocompleteProvider);
   await s.set("autocompleteModel", settings.autocompleteModel);
   await s.set("autocompleteModelPath", settings.autocompleteModelPath);
+  await s.set("inferenceEngine", settings.inferenceEngine);
+  await s.set("inferenceGpuLayers", settings.inferenceGpuLayers);
   await s.set("shortcutOverrides", sanitizeShortcutOverrides(settings.shortcutOverrides));
   await s.save();
 }
