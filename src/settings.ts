@@ -3,6 +3,12 @@ import { sanitizeShortcutOverrides, type ShortcutOverrides } from "./shortcuts";
 
 export type EmbeddingProvider = "none" | "openai" | "gemini" | "ollama" | "local";
 export type EnrichmentProvider = "none" | "openai" | "gemini" | "local-qwen";
+/** Autocomplete always uses a real model when enabled (enable/disable is a
+ *  separate toggle), so unlike enrichment there is no "none" provider. */
+export type AutocompleteProvider = "openai" | "gemini" | "local-qwen";
+/** Which local LLM engine runs offline generation (tagging + autocomplete).
+ *  "llamacpp" is only usable on builds compiled with the llamacpp feature. */
+export type InferenceEngine = "mistralrs" | "llamacpp";
 
 export const LOCAL_QWEN_MODEL_ID = "qwen2.5-0.5b-instruct";
 
@@ -81,6 +87,19 @@ export interface Settings {
    *  bundled location. */
   secretMaskerModelPath: string;
 
+  // Search autocomplete (inline ghost-text suggestions)
+  autocompleteEnabled: boolean;
+  autocompleteProvider: AutocompleteProvider;
+  autocompleteModel: string;
+  /** Absolute path of the local LLM used when autocompleteProvider is
+   *  "local-qwen". Empty string = the default/bundled LLM location. */
+  autocompleteModelPath: string;
+
+  // Local inference engine (applies to local LLM tagging + autocomplete)
+  inferenceEngine: InferenceEngine;
+  /** GPU layers to offload (llama.cpp only). 0 = CPU; higher = more on GPU. */
+  inferenceGpuLayers: number;
+
   // Editable shortcut overrides
   shortcutOverrides: ShortcutOverrides;
 }
@@ -123,6 +142,12 @@ const DEFAULTS: Settings = {
   trufflehogPath: "",
   secretMaskerEnabled: true,
   secretMaskerModelPath: "",
+  autocompleteEnabled: false,
+  autocompleteProvider: "local-qwen",
+  autocompleteModel: LOCAL_QWEN_MODEL_ID,
+  autocompleteModelPath: "",
+  inferenceEngine: "mistralrs",
+  inferenceGpuLayers: 0,
   shortcutOverrides: {},
 };
 
@@ -193,6 +218,14 @@ export async function loadSettings(): Promise<Settings> {
   settings.secretMaskerEnabled = (await read<boolean>("secretMaskerEnabled")) ?? settings.secretMaskerEnabled;
   settings.secretMaskerModelPath = (await read<string>("secretMaskerModelPath")) ?? settings.secretMaskerModelPath;
 
+  settings.autocompleteEnabled = (await read<boolean>("autocompleteEnabled")) ?? settings.autocompleteEnabled;
+  settings.autocompleteProvider = (await read<AutocompleteProvider>("autocompleteProvider")) ?? settings.autocompleteProvider;
+  settings.autocompleteModel = (await read<string>("autocompleteModel")) ?? settings.autocompleteModel;
+  settings.autocompleteModelPath = (await read<string>("autocompleteModelPath")) ?? settings.autocompleteModelPath;
+
+  settings.inferenceEngine = (await read<InferenceEngine>("inferenceEngine")) ?? settings.inferenceEngine;
+  settings.inferenceGpuLayers = (await read<number>("inferenceGpuLayers")) ?? settings.inferenceGpuLayers;
+
   settings.shortcutOverrides = sanitizeShortcutOverrides(
     await read<Record<string, unknown>>("shortcutOverrides"),
   );
@@ -218,6 +251,12 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await s.set("trufflehogPath", settings.trufflehogPath);
   await s.set("secretMaskerEnabled", settings.secretMaskerEnabled);
   await s.set("secretMaskerModelPath", settings.secretMaskerModelPath);
+  await s.set("autocompleteEnabled", settings.autocompleteEnabled);
+  await s.set("autocompleteProvider", settings.autocompleteProvider);
+  await s.set("autocompleteModel", settings.autocompleteModel);
+  await s.set("autocompleteModelPath", settings.autocompleteModelPath);
+  await s.set("inferenceEngine", settings.inferenceEngine);
+  await s.set("inferenceGpuLayers", settings.inferenceGpuLayers);
   await s.set("shortcutOverrides", sanitizeShortcutOverrides(settings.shortcutOverrides));
   await s.save();
 }

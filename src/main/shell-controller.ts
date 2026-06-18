@@ -30,12 +30,13 @@ export interface ShellControllerOptions {
   onOpenQuickAdd?: () => void;
   onOpenShortcutsSettings?: () => void;
   onOpenAiModelsSettings?: () => void;
+  onOpenInferenceSettings?: () => void;
 }
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 
 export function setupShell(options: ShellControllerOptions) {
-  const { dom, getSettings, setSettings, onOpenQuickAdd, onOpenShortcutsSettings, onOpenAiModelsSettings } = options;
+  const { dom, getSettings, setSettings, onOpenQuickAdd, onOpenShortcutsSettings, onOpenAiModelsSettings, onOpenInferenceSettings } = options;
 
   let uiStore: Store | null = null;
 
@@ -72,6 +73,8 @@ export function setupShell(options: ShellControllerOptions) {
   bindModalRejectButtons(dom.aiModelsSettingsModal, "ai-models-settings");
   bindModalRejectButtons(dom.rankingSettingsModal, "ranking-settings");
   bindModalRejectButtons(dom.secretMaskerSettingsModal, "secret-masker-settings");
+  bindModalRejectButtons(dom.autocompleteSettingsModal, "autocomplete-settings");
+  bindModalRejectButtons(dom.inferenceSettingsModal, "inference-settings");
   bindModalRejectButtons(dom.debugSettingsModal, "debug-settings");
   bindModalRejectButtons(dom.aboutModal, "about");
   bindModalRejectButtons(dom.addBadgeModal, "add-badge");
@@ -166,6 +169,17 @@ export function setupShell(options: ShellControllerOptions) {
       case "open-secret-masker-settings":
         debugLog("nav: opening secret detection settings modal");
         openModal({ backdrop: dom.secretMaskerSettingsModal });
+        break;
+
+      case "open-autocomplete-settings":
+        debugLog("nav: opening autocomplete settings modal");
+        openModal({ backdrop: dom.autocompleteSettingsModal });
+        break;
+
+      case "open-inference-settings":
+        debugLog("nav: opening inference settings modal");
+        openModal({ backdrop: dom.inferenceSettingsModal });
+        onOpenInferenceSettings?.();
         break;
 
       case "open-debug-settings":

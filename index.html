@@ -124,6 +124,14 @@
                 <span class="nav-option-icon"><i data-lucide="shield-check"></i></span>
                 <span class="nav-option-label">Secret Detection</span>
               </button>
+              <button class="nav-option" type="button" data-nav-id="open-autocomplete-settings">
+                <span class="nav-option-icon"><i data-lucide="text-cursor-input"></i></span>
+                <span class="nav-option-label">Autocomplete</span>
+              </button>
+              <button class="nav-option" type="button" data-nav-id="open-inference-settings">
+                <span class="nav-option-icon"><i data-lucide="cpu"></i></span>
+                <span class="nav-option-label">Inference</span>
+              </button>
               <div class="nav-divider"></div>
               <button class="nav-option" type="button" data-nav-id="open-debug-settings">
                 <span class="nav-option-icon"><i data-lucide="bug"></i></span>
@@ -758,6 +766,69 @@
             </section>
           </div>
           <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search Autocomplete Settings -->
+      <div id="autocomplete-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="autocomplete-settings-title">
+          <div class="modal-header">
+            <h3 id="autocomplete-settings-title">Search Autocomplete</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="hint">Show an inline suggestion in pale text after the cursor as you type in the search boxes (main window and the overlay). Press <kbd>Tab</kbd> to accept.</p>
+
+            <label class="checkbox-label" style="margin-top:10px;">
+              <input id="autocomplete-enabled-checkbox" type="checkbox" />
+              <span>Enable search autocomplete</span>
+            </label>
+
+            <div id="autocomplete-config" hidden>
+              <div class="field-block" style="margin-top:12px;">
+                <label class="field-label" for="autocomplete-model-select">Model</label>
+                <select id="autocomplete-model-select" class="select-field" style="flex:1;"></select>
+                <p id="autocomplete-model-hint" class="hint" style="margin-top:4px;"></p>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inference Engine Settings -->
+      <div id="inference-settings-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="inference-settings-title">
+          <div class="modal-header">
+            <h3 id="inference-settings-title">Inference Engine</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p class="hint">Choose the engine that runs the local LLM (used by AI enrichment tags/summaries and by search autocomplete). mistral.rs runs on CPU (NVIDIA/Apple GPU on supported builds); llama.cpp adds GPU acceleration — Vulkan covers AMD, NVIDIA and Intel.</p>
+
+            <div class="field-block" style="margin-top:12px;">
+              <label class="field-label" for="inference-engine-select">Engine</label>
+              <select id="inference-engine-select" class="select-field"></select>
+              <p id="inference-backend-hint" class="hint" style="margin-top:4px;"></p>
+            </div>
+
+            <div id="inference-gpu-layers-row" class="field-block" style="margin-top:12px;">
+              <label class="field-label" for="inference-gpu-layers-input">GPU layers to offload</label>
+              <input id="inference-gpu-layers-input" class="input-field" type="number" min="0" max="999" step="1" style="width:120px;" />
+              <p class="hint" style="margin-top:4px;">0 = CPU only. Higher offloads more of the model onto the GPU (e.g. 999 = all layers). Requires a GPU build.</p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn" id="inference-test-btn" type="button">Test engine</button>
+            <span id="inference-test-result" class="hint" style="flex:1;margin:0;"></span>
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>
           </div>
         </div>

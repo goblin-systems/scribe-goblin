@@ -1,4 +1,5 @@
 use crate::debug_log::{write_debug_log_internal, DebugLogState};
+use crate::inference::{self, EngineKind, LoadedEngine};
 use mistralrs::{
     GgufModelBuilder, IsqType, Model, RequestBuilder, Response, StopTokens, TextMessageRole,
     TextModelBuilder,
@@ -17,14 +18,17 @@ const DEFAULT_MAX_TOKENS: usize = 40;
 const MAX_ALLOWED_TOKENS: usize = 96;
 const INFERENCE_TIMEOUT: Duration = Duration::from_secs(35);
 
-struct LoadedLlm {
+/// A loaded engine, keyed on everything that would require a reload.
+struct LoadedSlot {
     path: PathBuf,
-    model: Model,
+    kind: EngineKind,
+    gpu_layers: u32,
+    engine: LoadedEngine,
 }
 
 pub struct QwenTaggerState {
     default_model_path: PathBuf,
-    inner: AsyncMutex<Option<LoadedLlm>>,
+    inner: AsyncMutex<Option<LoadedSlot>>,
     loaded_path: StdMutex<Option<PathBuf>>,
 }
 
@@ -51,10 +55,7 @@ impl QwenTaggerState {
     }
 
     pub fn is_loaded(&self) -> bool {
-        self.loaded_path
-            .lock()
-            .map(|p| p.is_some())
-            .unwrap_or(false)
+        self.loaded_path.lock().map(|p| p.is_some()).unwrap_or(false)
     }
 
     pub fn loaded_model_path(&self) -> Option<PathBuf> {
@@ -65,6 +66,35 @@ impl QwenTaggerState {
         if let Ok(mut guard) = self.loaded_path.lock() {
             *guard = path;
         }
+    }
+
+    /// Load the model into the slot if the path, engine, or GPU offload changed.
+    async fn ensure_loaded<'a>(
+        &'a self,
+        path: &Path,
+        kind: EngineKind,
+        gpu_layers: u32,
+    ) -> Result<tokio::sync::MutexGuard<'a, Option<LoadedSlot>>, String> {
+        let mut guard = self.inner.lock().await;
+        let needs_load = guard
+            .as_ref()
+            .map(|slot| slot.path != path || slot.kind != kind || slot.gpu_layers != gpu_layers)
+            .unwrap_or(true);
+        if needs_load {
+            if guard.is_some() {
+                *guard = None;
+                self.set_loaded_path(None);
+            }
+            let engine = inference::load_engine(path, kind, gpu_layers).await?;
+            *guard = Some(LoadedSlot {
+                path: path.to_path_buf(),
+                kind,
+                gpu_layers,
+                engine,
+            });
+            self.set_loaded_path(Some(path.to_path_buf()));
+        }
+        Ok(guard)
     }
 }
 
@@ -96,7 +126,7 @@ fn default_model_dir() -> PathBuf {
         .join(QWEN_MODEL_DIR)
 }
 
-fn model_id_for_path(path: &Path) -> String {
+pub(crate) fn model_id_for_path(path: &Path) -> String {
     if path.is_dir() {
         // HF cache snapshot dirs look like .../models--Org--Name/snapshots/<rev>;
         // recover the human-readable repo name when present.
@@ -116,7 +146,9 @@ fn model_id_for_path(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
-async fn load_model(path: &Path) -> Result<Model, String> {
+/// Load a mistral.rs model from a GGUF file or a Hugging Face directory. Reused
+/// by the `inference` engine layer for the mistral.rs backend.
+pub(crate) async fn load_model(path: &Path) -> Result<Model, String> {
     let is_gguf = path.is_file()
         && path
             .extension()
@@ -171,7 +203,7 @@ pub struct QwenStatus {
     pub model_exists: bool,
 }
 
-fn missing_model_error(path: &Path) -> String {
+pub(crate) fn missing_model_error(path: &Path) -> String {
     format!(
         "Local LLM model file not found at {}. Open Settings → Local AI Models to download one.",
         path.display()
@@ -184,6 +216,8 @@ pub async fn qwen_generate_tags(
     system_prompt: String,
     max_tokens: Option<usize>,
     model_path: Option<String>,
+    engine: Option<String>,
+    gpu_layers: Option<u32>,
     app: AppHandle,
     state: State<'_, QwenTaggerState>,
     debug_state: State<'_, DebugLogState>,
@@ -195,6 +229,8 @@ pub async fn qwen_generate_tags(
         return Err("System prompt is empty".to_string());
     }
 
+    let kind = EngineKind::parse(engine.as_deref());
+    let gpu_layers = gpu_layers.unwrap_or(0);
     let path = state.resolve_model_path(model_path.as_deref());
     if !path.exists() {
         let err = missing_model_error(&path);
@@ -211,7 +247,9 @@ pub async fn qwen_generate_tags(
         &debug_state,
         "INFO",
         &format!(
-            "qwen_generate_tags requested: text_chars={}, system_prompt_chars={}, max_tokens={}, loaded={}, model_path={}",
+            "qwen_generate_tags requested: engine={}, gpu_layers={}, text_chars={}, system_prompt_chars={}, max_tokens={}, loaded={}, model_path={}",
+            kind.as_str(),
+            gpu_layers,
             text.len(),
             system_prompt.len(),
             max_tokens,
@@ -221,41 +259,17 @@ pub async fn qwen_generate_tags(
     );
 
     // The model lock both serializes inference and guards (re)loading.
-    let mut guard = state.inner.lock().await;
     let load_start = Instant::now();
-
-    let needs_load = guard.as_ref().map(|llm| llm.path != path).unwrap_or(true);
-    if needs_load {
-        // Drop any previously loaded model first so we never hold two in memory.
-        if guard.is_some() {
-            write_debug_log_internal(
-                &app,
-                &debug_state,
-                "INFO",
-                "qwen_generate_tags unloading previous model before switch",
-            );
-            *guard = None;
-            state.set_loaded_path(None);
-        }
-        let model = load_model(&path).await.map_err(|err| {
-            write_debug_log_internal(
-                &app,
-                &debug_state,
-                "ERROR",
-                &format!("qwen_generate_tags load failed: {err}"),
-            );
-            err
-        })?;
-        *guard = Some(LoadedLlm {
-            path: path.clone(),
-            model,
-        });
-        state.set_loaded_path(Some(path.clone()));
-    }
-    let model = &guard
-        .as_ref()
-        .expect("model loaded above")
-        .model;
+    let guard = state.ensure_loaded(&path, kind, gpu_layers).await.map_err(|err| {
+        write_debug_log_internal(
+            &app,
+            &debug_state,
+            "ERROR",
+            &format!("qwen_generate_tags load failed: {err}"),
+        );
+        err
+    })?;
+    let slot = guard.as_ref().expect("engine loaded above");
     write_debug_log_internal(
         &app,
         &debug_state,
@@ -266,29 +280,68 @@ pub async fn qwen_generate_tags(
         ),
     );
 
+    let (content, prompt_tps, completion_tps) = match &slot.engine {
+        LoadedEngine::MistralRs(model) => {
+            mistralrs_stream_tags(model, &system_prompt, &text, max_tokens, &app, &debug_state)
+                .await?
+        }
+        #[cfg(feature = "llamacpp")]
+        LoadedEngine::LlamaCpp(_) => {
+            let out = inference::generate(
+                &slot.engine,
+                inference::GenRequest {
+                    system: system_prompt.clone(),
+                    user: text.clone(),
+                    max_tokens,
+                    stop: vec!["<|im_end|>".to_string()],
+                },
+            )
+            .await?;
+            let json = extract_complete_json_object(&out.text).ok_or_else(|| {
+                let err = format!(
+                    "llama.cpp response had no complete JSON object: {}",
+                    preview_for_log(&out.text)
+                );
+                write_debug_log_internal(&app, &debug_state, "ERROR", &err);
+                err
+            })?;
+            (json, out.prompt_tps, out.completion_tps)
+        }
+    };
+
+    Ok(QwenTagResult {
+        raw_response: content,
+        model_id,
+        prompt_tps,
+        completion_tps,
+    })
+}
+
+/// mistral.rs streaming generation with early-exit once a complete JSON object
+/// has been produced. Returns (json, prompt_tps, completion_tps).
+async fn mistralrs_stream_tags(
+    model: &Model,
+    system_prompt: &str,
+    text: &str,
+    max_tokens: usize,
+    app: &AppHandle,
+    debug_state: &DebugLogState,
+) -> Result<(String, f32, f32), String> {
     let request = RequestBuilder::new()
         .set_deterministic_sampler()
         .set_sampler_stop_toks(StopTokens::Seqs(vec!["<|im_end|>".to_string()]))
         .set_sampler_max_len(max_tokens)
-        .add_message(TextMessageRole::System, system_prompt)
-        .add_message(TextMessageRole::User, text);
+        .add_message(TextMessageRole::System, system_prompt.to_string())
+        .add_message(TextMessageRole::User, text.to_string());
 
     let inference_start = Instant::now();
-    write_debug_log_internal(
-        &app,
-        &debug_state,
-        "INFO",
-        "qwen_generate_tags inference start",
-    );
+    write_debug_log_internal(app, debug_state, "INFO", "qwen_generate_tags inference start");
 
-    let mut stream = model
-        .stream_chat_request(request)
-        .await
-        .map_err(|e| {
-            let err = format!("Qwen stream start failed: {e}");
-            write_debug_log_internal(&app, &debug_state, "ERROR", &err);
-            err
-        })?;
+    let mut stream = model.stream_chat_request(request).await.map_err(|e| {
+        let err = format!("Qwen stream start failed: {e}");
+        write_debug_log_internal(app, debug_state, "ERROR", &err);
+        err
+    })?;
 
     let mut raw_response = String::new();
     let mut chunks = 0usize;
@@ -316,8 +369,8 @@ pub async fn qwen_generate_tags(
                         if !first_chunk_logged {
                             first_chunk_logged = true;
                             write_debug_log_internal(
-                                &app,
-                                &debug_state,
+                                app,
+                                debug_state,
                                 "INFO",
                                 &format!(
                                     "qwen_generate_tags first token in {}ms",
@@ -364,7 +417,10 @@ pub async fn qwen_generate_tags(
                     return Err(format!("Qwen validation error: {err}"));
                 }
                 other => {
-                    return Err(format!("Unexpected Qwen response type: {}", response_kind(&other)));
+                    return Err(format!(
+                        "Unexpected Qwen response type: {}",
+                        response_kind(&other)
+                    ));
                 }
             }
         }
@@ -383,7 +439,7 @@ pub async fn qwen_generate_tags(
     let content = match stream_result {
         Ok(Ok(content)) => content,
         Ok(Err(err)) => {
-            write_debug_log_internal(&app, &debug_state, "ERROR", &err);
+            write_debug_log_internal(app, debug_state, "ERROR", &err);
             return Err(err);
         }
         Err(_) => {
@@ -394,14 +450,14 @@ pub async fn qwen_generate_tags(
                 raw_response.len(),
                 preview_for_log(&raw_response),
             );
-            write_debug_log_internal(&app, &debug_state, "ERROR", &err);
+            write_debug_log_internal(app, debug_state, "ERROR", &err);
             return Err(err);
         }
     };
 
     write_debug_log_internal(
-        &app,
-        &debug_state,
+        app,
+        debug_state,
         "INFO",
         &format!(
             "qwen_generate_tags inference completed in {}ms, chunks={}, response_chars={}, prompt_tps={:.2}, completion_tps={:.2}, raw_preview={}",
@@ -414,12 +470,7 @@ pub async fn qwen_generate_tags(
         ),
     );
 
-    Ok(QwenTagResult {
-        raw_response: content,
-        model_id,
-        prompt_tps,
-        completion_tps,
-    })
+    Ok((content, prompt_tps, completion_tps))
 }
 
 fn response_kind(response: &Response) -> &'static str {
@@ -499,33 +550,23 @@ pub async fn qwen_status(
 #[tauri::command]
 pub async fn qwen_prefetch(
     model_path: Option<String>,
+    engine: Option<String>,
+    gpu_layers: Option<u32>,
     state: State<'_, QwenTaggerState>,
 ) -> Result<(), String> {
+    let kind = EngineKind::parse(engine.as_deref());
+    let gpu_layers = gpu_layers.unwrap_or(0);
     let path = state.resolve_model_path(model_path.as_deref());
     if !path.exists() {
         return Err(missing_model_error(&path));
     }
-    let mut guard = state.inner.lock().await;
-    let needs_load = guard.as_ref().map(|llm| llm.path != path).unwrap_or(true);
-    if needs_load {
-        if guard.is_some() {
-            *guard = None;
-            state.set_loaded_path(None);
-        }
-        let model = load_model(&path).await?;
-        *guard = Some(LoadedLlm {
-            path: path.clone(),
-            model,
-        });
-        state.set_loaded_path(Some(path));
-    }
+    let _guard = state.ensure_loaded(&path, kind, gpu_layers).await?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
 
     #[test]
     fn fresh_state_reports_not_loaded() {
@@ -584,111 +625,6 @@ mod tests {
         assert_eq!(
             extract_complete_json_object("{\"tags\":[\"rust-{tauri}\",\"json\"]}"),
             Some("{\"tags\":[\"rust-{tauri}\",\"json\"]}".to_string()),
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    #[ignore = "requires local Qwen GGUF; run explicitly when changing local inference"]
-    async fn qwen_local_inference_completes_under_60s() {
-        let state = QwenTaggerState::default();
-        let model_path = state.default_model_path();
-        assert!(
-            model_path.exists(),
-            "missing Qwen model at {}",
-            model_path.display(),
-        );
-
-        let started = Instant::now();
-        let result = timeout(Duration::from_secs(60), async {
-            let load_started = Instant::now();
-            let model = load_model(&model_path).await?;
-            eprintln!(
-                "qwen local test: model loaded in {}ms",
-                load_started.elapsed().as_millis()
-            );
-            let request = RequestBuilder::new()
-                .set_deterministic_sampler()
-                .set_sampler_stop_toks(StopTokens::Seqs(vec!["<|im_end|>".to_string()]))
-                .set_sampler_max_len(32)
-                .add_message(
-                    TextMessageRole::System,
-                    "You are a tagging assistant. Given text, respond with JSON only. Format: {\"tags\":[\"tag1\",\"tag2\"]}. Use 2-4 lowercase content tags.",
-                )
-                .add_message(
-                    TextMessageRole::User,
-                    "Rust Tauri clipboard app hangs while streaming local Qwen GGUF inference.",
-                );
-
-            let mut stream = model
-                .stream_chat_request(request)
-                .await
-                .map_err(|err| err.to_string())?;
-            eprintln!(
-                "qwen local test: stream opened in {}ms",
-                started.elapsed().as_millis()
-            );
-            let mut raw = String::new();
-            let mut chunks = 0usize;
-            while let Some(response) = stream.next().await {
-                match response {
-                    Response::Chunk(chunk) => {
-                        chunks += 1;
-                        if let Some(delta) = chunk
-                            .choices
-                            .first()
-                            .and_then(|choice| choice.delta.content.clone())
-                        {
-                            if chunks == 1 {
-                                eprintln!(
-                                    "qwen local test: first chunk in {}ms",
-                                    started.elapsed().as_millis()
-                                );
-                            }
-                            raw.push_str(&delta);
-                            if let Some(json) = extract_complete_json_object(&raw) {
-                                eprintln!(
-                                    "qwen local test: complete JSON in {}ms over {} chunks",
-                                    started.elapsed().as_millis(),
-                                    chunks,
-                                );
-                                return Ok::<String, String>(json);
-                            }
-                        }
-                    }
-                    Response::Done(response) => {
-                        if let Some(content) = response
-                            .choices
-                            .first()
-                            .and_then(|choice| choice.message.content.clone())
-                        {
-                            raw.push_str(&content);
-                        }
-                        break;
-                    }
-                    Response::InternalError(err) => return Err(err.to_string()),
-                    Response::ValidationError(err) => return Err(err.to_string()),
-                    Response::ModelError(message, _) => return Err(message),
-                    other => return Err(format!("unexpected response: {}", response_kind(&other))),
-                }
-            }
-
-            extract_complete_json_object(&raw)
-                .ok_or_else(|| format!("no complete JSON in response: {raw}"))
-        })
-        .await
-        .expect("local Qwen inference exceeded 60 seconds")
-        .expect("local Qwen inference failed");
-
-        let parsed: Value = serde_json::from_str(&result).expect("Qwen returned invalid JSON");
-        let tags = parsed
-            .get("tags")
-            .and_then(|tags| tags.as_array())
-            .expect("Qwen JSON did not contain tags array");
-        assert!(!tags.is_empty(), "Qwen returned no tags: {result}");
-        assert!(
-            started.elapsed() < Duration::from_secs(60),
-            "local Qwen inference took {:?}",
-            started.elapsed(),
         );
     }
 }

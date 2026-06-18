@@ -10,7 +10,7 @@ name = "scribe_goblin_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.6", features = [] }
 
 # Local inference (candle/mistralrs) is unusably slow unoptimized. Optimize
 # dependencies even in dev builds; the workspace crate itself stays at the
@@ -19,15 +19,15 @@ tauri-build = { version = "2", features = [] }
 opt-level = 3
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
-tauri-plugin-store = "2"
+tauri = { version = "2.11", features = ["macos-private-api", "tray-icon"] }
+tauri-plugin-store = "2.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 arboard = "3"
 time = { version = "0.3", features = ["formatting", "local-offset"] }
 ureq = { version = "3", features = ["native-tls"] }
-tauri-plugin-global-shortcut = "2.0.0-rc"
+tauri-plugin-global-shortcut = "2.3.2"
 ort = { version = "2.0.0-rc.12", features = ["copy-dylibs"] }
 tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 ndarray = "0.16"
@@ -43,12 +43,25 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 candle-core = "0.10.2"
 candle-nn = "0.10.2"
 candle-transformers = "0.10.2"
+# Optional alternate LLM engine. Builds llama.cpp from source (cmake + C++), so
+# it is opt-in: default builds never compile it. GPU backends are compile-time
+# (see the llamacpp-* features below).
+llama-cpp-2 = { version = "0.1", optional = true, default-features = false }
 
 [features]
 # Metal (Apple GPU) inference. Requires full Xcode for the Metal shader
 # compiler (`xcrun metal`); Command Line Tools alone are not enough.
 # Build with: cargo tauri dev/build -- --features metal
 metal = ["mistralrs/metal"]
+
+# llama.cpp as a second, selectable LLM engine (CPU). Vendor GPU backends layer
+# on top — Vulkan is cross-vendor (AMD + NVIDIA + Intel) and is the AMD path on
+# Windows; CUDA is NVIDIA-only; ROCm is AMD/Linux. Each needs its SDK at build
+# time. Build e.g.: cargo tauri build -- --features llamacpp-vulkan
+llamacpp = ["dep:llama-cpp-2"]
+llamacpp-vulkan = ["llamacpp", "llama-cpp-2/vulkan"]
+llamacpp-cuda = ["llamacpp", "llama-cpp-2/cuda"]
+llamacpp-rocm = ["llamacpp", "llama-cpp-2/rocm"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Apple Accelerate BLAS for faster CPU inference; needs no extra tooling.
