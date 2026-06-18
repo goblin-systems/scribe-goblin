@@ -39,6 +39,7 @@ let currentSettings: Settings | null = null;
 let contextMenuView: "root" | "modified-paste" = "root";
 let lastContextMenuPosition: { x: number; y: number } | null = null;
 let uiStore: Store | null = null;
+let targetAppBundleId: string | null = null;
 const searchInput = document.getElementById("overlay-search") as HTMLInputElement;
 const resultsList = document.getElementById("results-list") as HTMLDivElement;
 const footerHint = document.getElementById("overlay-footer-hint") as HTMLSpanElement;
@@ -73,9 +74,20 @@ function resetOverlayTransientState(): void {
   document.body.classList.remove("alt-pressed");
 }
 
-async function closeOverlay(): Promise<void> {
+async function setMacAccessoryActivationPolicy(accessory: boolean): Promise<void> {
+  await invoke("set_macos_accessory_activation_policy", { accessory }).catch(() => undefined);
+}
+
+async function closeOverlay({ restoreActivationPolicy = true } = {}): Promise<void> {
   resetOverlayTransientState();
   await getCurrentWindow().hide();
+  if (restoreActivationPolicy) {
+    await setMacAccessoryActivationPolicy(false);
+  }
+}
+
+function isMacOs(): boolean {
+  return /Macintosh|Mac OS X/.test(navigator.userAgent);
 }
 
 function currentSearch(): string {
@@ -384,15 +396,25 @@ async function performPaste() {
     return;
   }
 
-  await closeOverlay();
+  const hideOverlayInNativePaste = isMacOs();
+  if (hideOverlayInNativePaste) {
+    resetOverlayTransientState();
+  } else {
+    await closeOverlay({ restoreActivationPolicy: false });
+  }
 
   setTimeout(async () => {
     try {
       await invoke("simulate_paste", {
         text: entry.content,
         html: entry.html_content,
+        targetAppBundleId,
+        hideOverlayAfterTargetActivation: hideOverlayInNativePaste,
       });
     } catch (err) {
+      if (hideOverlayInNativePaste) {
+        await closeOverlay({ restoreActivationPolicy: false });
+      }
       console.error("Paste failed:", err);
     }
   }, 100);
@@ -411,15 +433,25 @@ async function performModifiedPaste(transform: ModifiedPasteTransformId): Promis
   }
 
   const transformedText = applyModifiedPasteTransform(entry.content, transform);
-  await closeOverlay();
+  const hideOverlayInNativePaste = isMacOs();
+  if (hideOverlayInNativePaste) {
+    resetOverlayTransientState();
+  } else {
+    await closeOverlay({ restoreActivationPolicy: false });
+  }
 
   setTimeout(async () => {
     try {
       await invoke("simulate_paste", {
         text: transformedText,
         html: null,
+        targetAppBundleId,
+        hideOverlayAfterTargetActivation: hideOverlayInNativePaste,
       });
     } catch (err) {
+      if (hideOverlayInNativePaste) {
+        await closeOverlay({ restoreActivationPolicy: false });
+      }
       console.error("Modified paste failed:", err);
     }
   }, 100);
@@ -576,8 +608,11 @@ window.onkeyup = (e) => {
 };
 
 // Listen for show-overlay event
-listen("show-overlay", async (event: { payload?: { x?: number; y?: number } }) => {
+listen("show-overlay", async (event: { payload?: { x?: number; y?: number; targetAppBundleId?: string | null } }) => {
   const appWindow = getCurrentWindow();
+  targetAppBundleId = event.payload?.targetAppBundleId ?? null;
+  await setMacAccessoryActivationPolicy(true);
+  await invoke("configure_overlay_macos_panel").catch(() => undefined);
   await applyOverlayTheme();
   
   try {

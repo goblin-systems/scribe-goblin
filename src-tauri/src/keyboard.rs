@@ -1,6 +1,13 @@
 use std::thread;
 use std::time::Duration;
-use tauri::command;
+use tauri::{command, AppHandle, Manager};
+
+#[cfg(target_os = "macos")]
+use core_graphics::event::{CGEvent, CGEventFlags, CGEventTapLocation};
+#[cfg(target_os = "macos")]
+use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 #[cfg(target_os = "windows")]
 use windows::core::PCWSTR;
@@ -177,6 +184,99 @@ fn keyboard_input(vk: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
     }
 }
 
+#[cfg(target_os = "macos")]
+const MAC_KEY_V: u16 = 9;
+
+#[cfg(target_os = "macos")]
+fn apple_script_literal(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+#[cfg(target_os = "macos")]
+fn run_osascript(script: &str) -> Result<String, String> {
+    let output = Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "osascript failed".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn activate_app_by_bundle_id(bundle_id: &str) -> Result<(), String> {
+    if bundle_id.trim().is_empty() {
+        return Ok(());
+    }
+
+    run_osascript(&format!(
+        "tell application id {} to activate",
+        apple_script_literal(bundle_id.trim())
+    ))?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn mac_keyboard_input(keycode: u16, keydown: bool, flags: CGEventFlags) -> Result<(), String> {
+    let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
+        .map_err(|_| "Failed to create keyboard event source".to_string())?;
+    let event = CGEvent::new_keyboard_event(source, keycode, keydown)
+        .map_err(|_| "Failed to create keyboard event".to_string())?;
+    event.set_flags(flags);
+    event.post(CGEventTapLocation::HID);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn simulate_macos_paste(
+    app: &AppHandle,
+    target_app_bundle_id: Option<&str>,
+    hide_overlay_after_target_activation: bool,
+) -> Result<(), String> {
+    if let Some(bundle_id) = target_app_bundle_id {
+        activate_app_by_bundle_id(bundle_id)?;
+        thread::sleep(Duration::from_millis(120));
+    }
+
+    if hide_overlay_after_target_activation {
+        if let Some(window) = app.get_webview_window("overlay") {
+            window.hide().map_err(|e| e.to_string())?;
+        }
+        thread::sleep(Duration::from_millis(40));
+    }
+
+    let command = CGEventFlags::CGEventFlagCommand;
+    mac_keyboard_input(MAC_KEY_V, true, command)?;
+    thread::sleep(Duration::from_millis(15));
+    mac_keyboard_input(MAC_KEY_V, false, command)?;
+    Ok(())
+}
+
+#[command]
+pub fn get_frontmost_app_bundle_id() -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let bundle_id = run_osascript(
+            "tell application \"System Events\" to get bundle identifier of first application process whose frontmost is true",
+        )?;
+        return Ok((!bundle_id.is_empty()).then_some(bundle_id));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(None)
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn release_interfering_modifiers() {
     unsafe {
@@ -192,7 +292,22 @@ fn release_interfering_modifiers() {
 }
 
 #[command]
-pub fn simulate_paste(text: String, html: Option<String>) -> Result<(), String> {
+pub fn simulate_paste(
+    app: AppHandle,
+    text: String,
+    html: Option<String>,
+    target_app_bundle_id: Option<String>,
+    hide_overlay_after_target_activation: Option<bool>,
+) -> Result<(), String> {
+    #[cfg(not(target_os = "macos"))]
+    let _ = &app;
+    #[cfg(not(target_os = "windows"))]
+    let _ = &html;
+    #[cfg(not(target_os = "macos"))]
+    let _ = &target_app_bundle_id;
+    #[cfg(not(target_os = "macos"))]
+    let _ = &hide_overlay_after_target_activation;
+
     // 1. Set text to clipboard
     #[cfg(target_os = "windows")]
     {
@@ -222,6 +337,15 @@ pub fn simulate_paste(text: String, html: Option<String>) -> Result<(), String> 
         ];
 
         SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        simulate_macos_paste(
+            &app,
+            target_app_bundle_id.as_deref(),
+            hide_overlay_after_target_activation.unwrap_or(false),
+        )?;
     }
 
     Ok(())

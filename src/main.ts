@@ -280,10 +280,20 @@ async function registerOverlayShortcut(binding: string): Promise<void> {
       if (event.state === "Pressed") {
         debugLog(`Global shortcut ${binding} pressed`, "INFO");
         try {
+          const targetAppBundleId = await invoke<string | null>("get_frontmost_app_bundle_id").catch(
+            () => null,
+          );
+          await invoke("set_macos_accessory_activation_policy", { accessory: true }).catch(
+            () => undefined,
+          );
+          await invoke("configure_overlay_macos_panel").catch(() => undefined);
           const [x, y] = await invoke<[number, number]>("get_cursor_position");
           debugLog(`Cursor position for overlay: ${x}, ${y}`, "INFO");
-          await emit("show-overlay", { x, y });
+          await emit("show-overlay", { x, y, targetAppBundleId });
         } catch (err) {
+          await invoke("set_macos_accessory_activation_policy", { accessory: false }).catch(
+            () => undefined,
+          );
           debugLog(
             `Failed to get cursor pos or emit show-overlay: ${err}`,
             "ERROR",

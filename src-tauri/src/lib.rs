@@ -16,7 +16,7 @@ mod trufflehog;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    Manager, WindowEvent,
+    AppHandle, Manager, WindowEvent,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -71,6 +71,9 @@ pub fn run() {
             debug_log::write_debug_log,
             debug_log::open_debug_log_folder,
             debug_log::open_external_url,
+            configure_overlay_macos_panel,
+            set_macos_accessory_activation_policy,
+            keyboard::get_frontmost_app_bundle_id,
             http_proxy::http_fetch,
             keyboard::simulate_paste,
             import::import_capture,
@@ -178,6 +181,11 @@ pub fn run() {
 
             app.manage(models::ModelsState::new(models_dir, final_path.clone()));
 
+            #[cfg(target_os = "macos")]
+            if let Err(e) = configure_overlay_macos_panel_inner(app.handle()) {
+                eprintln!("Warning: could not configure overlay panel: {}", e);
+            }
+
             let settings_item =
                 MenuItem::with_id(app, "settings", "Open Scribe Goblin", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -188,6 +196,8 @@ pub fn run() {
                 .tooltip("Scribe Goblin")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "settings" => {
+                        #[cfg(target_os = "macos")]
+                        let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
@@ -199,6 +209,8 @@ pub fn run() {
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
                         let app = tray.app_handle();
+                        #[cfg(target_os = "macos")]
+                        let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
                             let _ = window.set_focus();
@@ -242,4 +254,67 @@ fn get_cursor_position() -> Result<(f64, f64), String> {
         }
     }
     Ok((0.0, 0.0))
+}
+
+#[tauri::command]
+fn set_macos_accessory_activation_policy(app: AppHandle, accessory: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let policy = if accessory {
+            tauri::ActivationPolicy::Accessory
+        } else {
+            tauri::ActivationPolicy::Regular
+        };
+        return app.set_activation_policy(policy).map_err(|e| e.to_string());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, accessory);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn configure_overlay_macos_panel(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return configure_overlay_macos_panel_inner(&app);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn configure_overlay_macos_panel_inner(app: &AppHandle) -> Result<(), String> {
+    use objc2_app_kit::{
+        NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask, NSPopUpMenuWindowLevel,
+    };
+
+    let window = app
+        .get_webview_window("overlay")
+        .ok_or_else(|| "Overlay window not found".to_string())?;
+    let ns_window = window.ns_window().map_err(|e| e.to_string())?;
+    let ns_window = unsafe { &*ns_window.cast::<NSWindow>() };
+
+    ns_window.setStyleMask(
+        ns_window.styleMask()
+            | NSWindowStyleMask::NonactivatingPanel
+            | NSWindowStyleMask::UtilityWindow,
+    );
+    ns_window.setCollectionBehavior(
+        ns_window.collectionBehavior()
+            | NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+            | NSWindowCollectionBehavior::Transient,
+    );
+    ns_window.setLevel(NSPopUpMenuWindowLevel);
+    ns_window.setHidesOnDeactivate(false);
+    ns_window.setCanHide(false);
+
+    Ok(())
 }

@@ -53,6 +53,8 @@ metal = ["mistralrs/metal"]
 [target.'cfg(target_os = "macos")'.dependencies]
 # Apple Accelerate BLAS for faster CPU inference; needs no extra tooling.
 mistralrs = { version = "0.8.1", features = ["accelerate"] }
+core-graphics = "0.25"
+objc2-app-kit = { version = "0.3", features = ["NSWindow"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.62", features = [
