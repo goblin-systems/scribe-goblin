@@ -1,6 +1,6 @@
 [package]
 name = "scribe-goblin"
-version = "1.0.0"
+version = "1.0.1"
 description = "Local-first second brain — clipboard capture, semantic search, embeddings"
 authors = ["Sergej Popov"]
 edition = "2021"
@@ -79,4 +79,5 @@ windows = { version = "0.62", features = [
     "Win32_System_Memory",
     "Win32_System_Ole",
 ] }
+
 
