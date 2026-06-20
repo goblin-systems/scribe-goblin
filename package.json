@@ -12,10 +12,12 @@
     "tauri:dev:vulkan": "tauri dev --features llamacpp-vulkan",
     "tauri:dev:cuda": "tauri dev --features llamacpp-cuda",
     "tauri:dev:rocm": "tauri dev --features llamacpp-rocm",
+    "tauri:dev:metal": "tauri dev --features metal",
     "tauri:build": "tauri build",
     "tauri:build:vulkan": "tauri build --features llamacpp-vulkan",
     "tauri:build:cuda": "tauri build --features llamacpp-cuda",
     "tauri:build:rocm": "tauri build --features llamacpp-rocm",
+    "tauri:build:metal": "tauri build --features metal",
     "test": "vitest run"
   },
   "dependencies": {
