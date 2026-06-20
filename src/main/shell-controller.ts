@@ -31,12 +31,13 @@ export interface ShellControllerOptions {
   onOpenShortcutsSettings?: () => void;
   onOpenAiModelsSettings?: () => void;
   onOpenInferenceSettings?: () => void;
+  onOpenGarbageCollection?: () => void;
 }
 
 // ── Setup ───────────────────────────────────────────────────────────────────
 
 export function setupShell(options: ShellControllerOptions) {
-  const { dom, getSettings, setSettings, onOpenQuickAdd, onOpenShortcutsSettings, onOpenAiModelsSettings, onOpenInferenceSettings } = options;
+  const { dom, getSettings, setSettings, onOpenQuickAdd, onOpenShortcutsSettings, onOpenAiModelsSettings, onOpenInferenceSettings, onOpenGarbageCollection } = options;
 
   let uiStore: Store | null = null;
 
@@ -75,6 +76,7 @@ export function setupShell(options: ShellControllerOptions) {
   bindModalRejectButtons(dom.secretMaskerSettingsModal, "secret-masker-settings");
   bindModalRejectButtons(dom.autocompleteSettingsModal, "autocomplete-settings");
   bindModalRejectButtons(dom.inferenceSettingsModal, "inference-settings");
+  bindModalRejectButtons(dom.garbageCollectionModal, "garbage-collection");
   bindModalRejectButtons(dom.debugSettingsModal, "debug-settings");
   bindModalRejectButtons(dom.aboutModal, "about");
   bindModalRejectButtons(dom.addBadgeModal, "add-badge");
@@ -180,6 +182,11 @@ export function setupShell(options: ShellControllerOptions) {
         debugLog("nav: opening inference settings modal");
         openModal({ backdrop: dom.inferenceSettingsModal });
         onOpenInferenceSettings?.();
+        break;
+
+      case "open-garbage-collection":
+        debugLog("nav: opening garbage collection modal");
+        onOpenGarbageCollection?.();
         break;
 
       case "open-debug-settings":

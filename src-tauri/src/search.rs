@@ -1285,7 +1285,9 @@ fn exact_keyword_search_with_conn(
 
     while let Some(row) = rows.next().map_err(|e| e.to_string())? {
         let entry = row_to_entry(row).map_err(|e| e.to_string())?;
-        let rank = row.get::<_, f64>("search_rank").map_err(|e| e.to_string())?;
+        let rank = row
+            .get::<_, f64>("search_rank")
+            .map_err(|e| e.to_string())?;
         let bm25 = row
             .get::<_, Option<f64>>("bm25_score")
             .map_err(|e| e.to_string())?;
@@ -3303,7 +3305,11 @@ mod tests {
         let edges = build_semantic_graph_with_conn(&conn, &ids, 4, 0.5).unwrap();
 
         // morning↔afternoon must be connected; neither should link to script.
-        assert_eq!(edges.len(), 1, "expected exactly one strong edge: {edges:?}");
+        assert_eq!(
+            edges.len(),
+            1,
+            "expected exactly one strong edge: {edges:?}"
+        );
         let edge = &edges[0];
         assert_eq!(edge.source, "afternoon");
         assert_eq!(edge.target, "morning");

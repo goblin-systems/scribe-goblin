@@ -1506,3 +1506,63 @@ button svg {
   text-align: center;
   padding: var(--space-32, var(--space-10)) 0;
 }
+.garbage-collection-body {
+  display: grid;
+  gap: 14px;
+}
+
+.garbage-collection-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.garbage-collection-list {
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 12px;
+  display: grid;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.garbage-collection-empty {
+  padding: 18px;
+}
+
+.garbage-collection-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.garbage-collection-row + .garbage-collection-row {
+  border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+}
+
+.garbage-collection-row-head {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.garbage-collection-row-title {
+  align-items: center;
+  display: flex;
+  font-weight: 600;
+  gap: 8px;
+  min-width: 0;
+}
+
+.garbage-collection-preview {
+  color: var(--text-subtle, #9ca3af);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.garbage-collection-reason {
+  color: var(--text-muted, #8b949e);
+  font-size: 0.82rem;
+}

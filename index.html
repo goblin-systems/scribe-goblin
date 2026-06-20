@@ -87,6 +87,17 @@
             </div>
           </div>
 
+          <!-- Tools -->
+          <div class="nav-item">
+            <button class="nav-trigger" type="button">Tools <i data-lucide="chevron-down"></i></button>
+            <div class="nav-dropdown">
+              <button class="nav-option" type="button" data-nav-id="open-garbage-collection">
+                <span class="nav-option-icon"><i data-lucide="trash-2"></i></span>
+                <span class="nav-option-label">Garbage collection</span>
+              </button>
+            </div>
+          </div>
+
           <!-- Settings -->
           <div class="nav-item">
             <button class="nav-trigger" type="button">Settings <i data-lucide="chevron-down"></i></button>
@@ -581,6 +592,11 @@
               <span>Enable tags</span>
             </label>
 
+            <label class="checkbox-label" style="margin-top:10px;">
+              <input id="enrichment-garbage-detection-enabled-checkbox" type="checkbox" />
+              <span>Detect garbage clipboard items during enrichment</span>
+            </label>
+
             <div id="enrichment-config" hidden>
               <div class="field-block" style="margin-top:12px;">
                 <label class="field-label" for="enrichment-unified-model-select">Model</label>
@@ -597,6 +613,7 @@
           </div>
           <div class="modal-footer">
             <button class="secondary-btn" id="retag-all-enrichment-btn" type="button">Retag All Items</button>
+            <button class="secondary-btn" id="retag-cancel-btn" type="button" hidden>Cancel Retagging</button>
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>
           </div>
         </div>
@@ -856,6 +873,33 @@
           </div>
           <div class="modal-footer">
             <button class="secondary-btn modal-btn-reject" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Garbage Collection -->
+      <div id="garbage-collection-modal" class="modal-backdrop" hidden>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="garbage-collection-title">
+          <div class="modal-header">
+            <h3 id="garbage-collection-title">AI Garbage Collection</h3>
+            <button class="icon-btn modal-close-btn modal-btn-reject" type="button" aria-label="Close">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <div class="modal-body garbage-collection-body">
+            <p class="text-subtle">Review clipboard items that AI enrichment has already tagged as garbage. New items are tagged during normal enrichment when garbage detection is enabled.</p>
+            <div class="garbage-collection-actions">
+              <button id="garbage-collection-scan-btn" class="secondary-btn" type="button">
+                <i data-lucide="refresh-cw"></i>
+                <span>Refresh garbage list</span>
+              </button>
+              <span id="garbage-collection-status" class="hint">Ready to load precomputed garbage tags.</span>
+            </div>
+            <div id="garbage-collection-list" class="garbage-collection-list" aria-live="polite"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="secondary-btn modal-btn-reject" type="button">Cancel</button>
+            <button id="garbage-collection-delete-btn" class="secondary-btn modal-btn-accept" type="button" disabled>Delete selected garbage</button>
           </div>
         </div>
       </div>

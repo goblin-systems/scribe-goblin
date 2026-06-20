@@ -55,7 +55,10 @@ impl QwenTaggerState {
     }
 
     pub fn is_loaded(&self) -> bool {
-        self.loaded_path.lock().map(|p| p.is_some()).unwrap_or(false)
+        self.loaded_path
+            .lock()
+            .map(|p| p.is_some())
+            .unwrap_or(false)
     }
 
     pub fn loaded_model_path(&self) -> Option<PathBuf> {
@@ -260,15 +263,18 @@ pub async fn qwen_generate_tags(
 
     // The model lock both serializes inference and guards (re)loading.
     let load_start = Instant::now();
-    let guard = state.ensure_loaded(&path, kind, gpu_layers).await.map_err(|err| {
-        write_debug_log_internal(
-            &app,
-            &debug_state,
-            "ERROR",
-            &format!("qwen_generate_tags load failed: {err}"),
-        );
-        err
-    })?;
+    let guard = state
+        .ensure_loaded(&path, kind, gpu_layers)
+        .await
+        .map_err(|err| {
+            write_debug_log_internal(
+                &app,
+                &debug_state,
+                "ERROR",
+                &format!("qwen_generate_tags load failed: {err}"),
+            );
+            err
+        })?;
     let slot = guard.as_ref().expect("engine loaded above");
     write_debug_log_internal(
         &app,
@@ -335,7 +341,12 @@ async fn mistralrs_stream_tags(
         .add_message(TextMessageRole::User, text.to_string());
 
     let inference_start = Instant::now();
-    write_debug_log_internal(app, debug_state, "INFO", "qwen_generate_tags inference start");
+    write_debug_log_internal(
+        app,
+        debug_state,
+        "INFO",
+        "qwen_generate_tags inference start",
+    );
 
     let mut stream = model.stream_chat_request(request).await.map_err(|e| {
         let err = format!("Qwen stream start failed: {e}");
@@ -491,7 +502,11 @@ fn response_kind(response: &Response) -> &'static str {
 }
 
 fn preview_for_log(value: &str) -> String {
-    value.chars().take(180).collect::<String>().replace('\n', "\\n")
+    value
+        .chars()
+        .take(180)
+        .collect::<String>()
+        .replace('\n', "\\n")
 }
 
 fn extract_complete_json_object(value: &str) -> Option<String> {

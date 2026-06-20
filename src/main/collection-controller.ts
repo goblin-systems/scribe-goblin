@@ -1531,7 +1531,9 @@ export async function processNoteBackground(
 
   const summaryEnabled = shouldGenerateSummary(settings, content);
   const aiTaggingEnabled = shouldGenerateAiTags(settings);
-  const enrichmentPromise = aiTaggingEnabled
+  const garbageDetectionEnabled = shouldDetectGarbage(settings);
+  const enrichmentEnabled = aiTaggingEnabled || garbageDetectionEnabled;
+  const enrichmentPromise = enrichmentEnabled
     ? Promise.resolve()
         .then(() => enrichEntry(content, settings))
         .catch((err) => {
@@ -1573,12 +1575,21 @@ export async function processNoteBackground(
       });
     }
 
-    const normalizedTagEnrichment = aiTaggingEnabled && enrichmentResult
+    const normalizedTagEnrichment = enrichmentEnabled && enrichmentResult
       ? normalizeEnrichmentResult(enrichmentResult)
-      : { summary: "", tags: [], source: "none" as const, provider: null as string | null, model: null };
+      : {
+          summary: "",
+          tags: [],
+          garbage: false,
+          garbage_reason: "",
+          source: "none" as const,
+          provider: null as string | null,
+          model: null,
+        };
     const normalizedSummary = summaryResult
       ? normalizeEnrichmentSummary(summaryResult.summary)
       : null;
+    const persistedEnrichmentTags = aiTaggingEnabled ? normalizedTagEnrichment.tags : [];
 
     const generatedTags: EntryTagRecord[] = [];
     const now = Date.now();
@@ -1596,7 +1607,7 @@ export async function processNoteBackground(
         color: null,
       });
     }
-    for (const tag of normalizedTagEnrichment.tags) {
+    for (const tag of persistedEnrichmentTags) {
       generatedTags.push({
         id: crypto.randomUUID(),
         name: tag,
@@ -1607,6 +1618,19 @@ export async function processNoteBackground(
         provider: normalizedTagEnrichment.provider ?? null,
         model: normalizedTagEnrichment.model ?? null,
         color: null,
+      });
+    }
+    if (garbageDetectionEnabled && normalizedTagEnrichment.garbage === true) {
+      generatedTags.push({
+        id: crypto.randomUUID(),
+        name: "garbage",
+        source: "ai",
+        kind: "enrichment",
+        created_at: now,
+        confidence: null,
+        provider: normalizedTagEnrichment.provider ?? null,
+        model: normalizedTagEnrichment.garbage_reason || (normalizedTagEnrichment.model ?? null),
+        color: "red",
       });
     }
     if (secretResult?.diagnostics.trufflehog.matched) {
@@ -1626,7 +1650,7 @@ export async function processNoteBackground(
     await invoke("db_update_entry_enrichment", {
       id,
       summary: normalizedSummary,
-      enrichmentTags: serializeEnrichmentTags(normalizedTagEnrichment.tags),
+      enrichmentTags: serializeEnrichmentTags(persistedEnrichmentTags),
     });
     await invoke("db_replace_generated_tags", {
       id,
@@ -1652,21 +1676,21 @@ export async function processNoteBackground(
             provider: normalizedTagEnrichment.provider ?? settings.enrichmentProvider,
             model: normalizedTagEnrichment.model ?? (settings.enrichmentModel || null),
             summary_present: normalizedSummary !== null,
-            tags_returned: normalizedTagEnrichment.tags,
+            tags_returned: persistedEnrichmentTags,
             source: normalizedTagEnrichment.source ?? "provider",
             reason: null,
             error: null,
           }
         : {
-            status: aiTaggingEnabled
-              ? normalizedTagEnrichment.tags.length > 0 ? "fallback" : "failed"
+            status: enrichmentEnabled
+              ? persistedEnrichmentTags.length > 0 || normalizedTagEnrichment.garbage === true ? "fallback" : "failed"
               : summaryEnabled ? "skipped" : "unavailable",
-            provider: normalizedTagEnrichment.provider ?? (aiTaggingEnabled ? settings.enrichmentProvider : "none"),
+            provider: normalizedTagEnrichment.provider ?? (enrichmentEnabled ? settings.enrichmentProvider : "none"),
             model: normalizedTagEnrichment.model ?? null,
             summary_present: normalizedSummary !== null,
-            tags_returned: normalizedTagEnrichment.tags,
-            source: normalizedTagEnrichment.source ?? (aiTaggingEnabled ? "heuristic" : "none"),
-            reason: aiTaggingEnabled
+            tags_returned: persistedEnrichmentTags,
+            source: normalizedTagEnrichment.source ?? (enrichmentEnabled ? "heuristic" : "none"),
+            reason: enrichmentEnabled
               ? "provider_unavailable_or_failed"
               : summaryEnabled
                 ? "tagging_disabled"
@@ -1773,6 +1797,10 @@ function shouldGenerateSummary(settings: Settings, content: string): boolean {
 
 function shouldGenerateAiTags(settings: Settings): boolean {
   return settings.enrichmentTaggingEnabled && hasConfiguredEnrichmentProvider(settings);
+}
+
+function shouldDetectGarbage(settings: Settings): boolean {
+  return settings.enrichmentGarbageDetectionEnabled && hasConfiguredEnrichmentProvider(settings);
 }
 
 function normalizeEnrichmentSummary(summary: string): string | null {

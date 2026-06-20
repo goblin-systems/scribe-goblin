@@ -1,15 +1,15 @@
 mod autocomplete;
 mod classifier;
 mod clipboard;
-mod inference;
-#[cfg(feature = "llamacpp")]
-mod llamacpp;
 mod db;
 mod debug_log;
 mod heuristics;
 mod http_proxy;
 mod import;
+mod inference;
 mod keyboard;
+#[cfg(feature = "llamacpp")]
+mod llamacpp;
 mod models;
 mod qwen_tagger;
 mod search;
@@ -104,6 +104,7 @@ pub fn run() {
             models::models_list,
             models::models_download,
             models::models_cancel_download,
+            models::models_delete,
             models::ai_status,
         ])
         .manage(clipboard::ClipboardState::default())
@@ -303,7 +304,7 @@ fn configure_overlay_macos_panel(app: AppHandle) -> Result<(), String> {
 #[cfg(target_os = "macos")]
 fn configure_overlay_macos_panel_inner(app: &AppHandle) -> Result<(), String> {
     use objc2_app_kit::{
-        NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask, NSPopUpMenuWindowLevel,
+        NSPopUpMenuWindowLevel, NSWindow, NSWindowCollectionBehavior, NSWindowStyleMask,
     };
 
     let window = app

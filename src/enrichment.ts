@@ -34,6 +34,8 @@ async function httpFetch(
 export interface EnrichmentResult {
   summary: string;
   tags: string[];
+  garbage?: boolean;
+  garbage_reason?: string;
   source?: "provider" | "heuristic";
   provider?: string;
   model?: string | null;
@@ -48,13 +50,19 @@ Rules:
 - respond with JSON only`;
 
 const TAGGING_PROMPT = `You are a tagging assistant. Given a piece of text, respond with JSON only.
-Format: {"tags": ["tag1", "tag2", "tag3"]}
+Format: {"tags": ["tag1", "tag2", "tag3"], "garbage": false, "garbage_reason": "short reason or empty"}
 Rules:
 - tags: 2-6 lowercase tags, specific and content-bearing
 - choose open-ended tags from the content; do not choose from a fixed label list
 - avoid generic junk like note, text, content, misc, other, general, clipboard, item, info
 - dedupe semantically similar tags
 - include format, technology, project, domain, intent, or problem tags when they are actually relevant
+- garbage: true when the clipboard item is low-value noise worth offering for deletion
+- garbage=true examples: accidental keystrokes (asdf, qweqwe), tiny contextless fragments (ok, yes, lol, done, 123), separators (..., ---), temporary UI text (Copied!, Loading..., Untitled), placeholders, demo/test text, repeated short phrases, copied button labels, incomplete fragments with no useful context
+- never mark URLs or email addresses as garbage, even when they are short or contextless
+- garbage=false for URLs, paths, commands, code, SQL, JSON, YAML, logs, errors, IDs, ticket numbers, hashes, names, emails, addresses, dates, TODOs, notes, work context, generated answers, credentials, tokens, or anything secret-looking
+- prefer garbage=true for obvious low-value clipboard noise; when truly uncertain, garbage=false
+- garbage_reason: max 80 characters, plain text; empty string when garbage=false
 - respond with JSON only, no markdown fences`;
 
 const GENERIC_TAGS = new Set([
@@ -88,11 +96,23 @@ function dedupeTags(tags: string[]): string[] {
   return normalized;
 }
 
+function normalizeBoolean(value: unknown): boolean {
+  if (value === true) return true;
+  if (typeof value === "string") {
+    return ["true", "yes", "garbage", "delete", "junk"].includes(value.trim().toLowerCase());
+  }
+  return false;
+}
+
 export function normalizeEnrichmentResult(result: EnrichmentResult): EnrichmentResult {
   return {
     ...result,
     summary: typeof result.summary === "string" ? result.summary.trim() : "",
     tags: dedupeTags(Array.isArray(result.tags) ? result.tags : []),
+    garbage: normalizeBoolean(result.garbage),
+    garbage_reason: typeof result.garbage_reason === "string"
+      ? result.garbage_reason.trim().slice(0, 120)
+      : "",
   };
 }
 
@@ -330,12 +350,14 @@ function parseEnrichmentJson(raw: string): EnrichmentResult {
   debugLog(`parseEnrichmentJson input: ${raw}`, "INFO");
   const cleaned = raw.replace(/```json\n?|\n?```/g, "").trim();
   try {
-    const parsed = JSON.parse(cleaned) as { summary?: string; tags?: string[] };
+    const parsed = JSON.parse(cleaned) as { summary?: string; tags?: string[]; garbage?: unknown; garbage_reason?: string };
     const result = normalizeEnrichmentResult({
       summary: typeof parsed.summary === "string" ? parsed.summary : "",
       tags: Array.isArray(parsed.tags)
         ? parsed.tags.filter((t): t is string => typeof t === "string")
         : [],
+      garbage: normalizeBoolean(parsed.garbage),
+      garbage_reason: typeof parsed.garbage_reason === "string" ? parsed.garbage_reason : "",
       source: "provider",
     });
     debugLog(`parseEnrichmentJson output: ${JSON.stringify(result)}`, "INFO");

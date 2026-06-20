@@ -38,6 +38,7 @@ import {
 } from "./main/settings-controller";
 import { attachAutocomplete, type AutocompleteHandle } from "./autocomplete";
 import { initInferenceController } from "./main/inference-controller";
+import { initGarbageCollectionController } from "./main/garbage-collection-controller";
 import {
   addNote,
   clearCollectionSelection,
@@ -535,6 +536,12 @@ async function init() {
   const inferenceController = initInferenceController(dom, getSettings, () =>
     onSettingsChange(0),
   );
+  const garbageCollectionController = initGarbageCollectionController(
+    dom,
+    async () => {
+      await loadClipboard(dom.clipboardSearchInput.value.trim() || undefined);
+    },
+  );
   const shell = setupShell({
     dom,
     getSettings,
@@ -543,6 +550,7 @@ async function init() {
     onOpenShortcutsSettings: () => shortcutsController.openShortcutsSettings(),
     onOpenAiModelsSettings: () => void aiModelsController.refresh(),
     onOpenInferenceSettings: () => void inferenceController.refresh(),
+    onOpenGarbageCollection: () => garbageCollectionController.open(),
   });
   await shell.applySettingsToUI(currentSettings);
   await initImportController(dom);
@@ -552,10 +560,16 @@ async function init() {
   updateRuntimeShortcutLabels(dom);
   wireReembedAllButton(dom, getSettings);
 
+  let retagCancelRequested = false;
+
   const handleRetagAll = async (btn: HTMLButtonElement) => {
     const originalText = btn.textContent;
+    const originalCancelText = dom.retagCancelBtn.textContent;
+    retagCancelRequested = false;
     btn.disabled = true;
     btn.textContent = "Retagging…";
+    dom.retagCancelBtn.hidden = false;
+    dom.retagCancelBtn.disabled = false;
     const progress = createProgressBar(dom.retagProgressHost);
 
     try {
@@ -571,6 +585,7 @@ async function init() {
       progress.update(0, entries.length);
       let processed = 0;
       for (const entry of entries) {
+        if (retagCancelRequested) break;
         await processNoteBackground(entry.id, entry.content);
         processed += 1;
         progress.update(processed, entries.length);
@@ -583,17 +598,29 @@ async function init() {
       }
 
       await emit("entries-changed");
-      progress.finish(`Retagged ${entries.length} items`);
-      showToast(`Retagged ${entries.length} items`, "success", 1600);
-      btn.textContent = "Done!";
+      if (retagCancelRequested) {
+        progress.finish(`Cancelled after ${processed}/${entries.length} items`);
+        showToast(`Retagging cancelled after ${processed}/${entries.length} items`, "info", 2200);
+        btn.textContent = "Cancelled";
+      } else {
+        progress.finish(`Retagged ${entries.length} items`);
+        showToast(`Retagged ${entries.length} items`, "success", 1600);
+        btn.textContent = "Done!";
+      }
       window.setTimeout(() => {
         btn.textContent = originalText;
         btn.disabled = false;
+        dom.retagCancelBtn.hidden = true;
+        dom.retagCancelBtn.disabled = false;
+        dom.retagCancelBtn.textContent = originalCancelText;
         progress.reset();
       }, 2500);
     } catch (err) {
       btn.textContent = originalText;
       btn.disabled = false;
+      dom.retagCancelBtn.hidden = true;
+      dom.retagCancelBtn.disabled = false;
+      dom.retagCancelBtn.textContent = originalCancelText;
       progress.reset();
       console.error("retag_all_items failed:", err);
       showToast("Failed to retag items", "error");
@@ -602,6 +629,11 @@ async function init() {
 
   dom.retagAllEnrichmentBtn.addEventListener("click", async () => {
     await handleRetagAll(dom.retagAllEnrichmentBtn);
+  });
+  dom.retagCancelBtn.addEventListener("click", () => {
+    retagCancelRequested = true;
+    dom.retagCancelBtn.disabled = true;
+    dom.retagCancelBtn.textContent = "Cancelling…";
   });
 
   // ── Collection graph (shows when a list is open but nothing is selected)
@@ -1697,12 +1729,14 @@ async function init() {
     updateEnrichmentVisibility(
       dom,
       dom.enrichmentSummaryEnabledCheckbox.checked ||
-        dom.enrichmentTaggingEnabledCheckbox.checked,
+        dom.enrichmentTaggingEnabledCheckbox.checked ||
+        dom.enrichmentGarbageDetectionEnabledCheckbox.checked,
     );
     onSettingsChange(0);
   };
   dom.enrichmentSummaryEnabledCheckbox.addEventListener("change", syncEnrichmentToggles);
   dom.enrichmentTaggingEnabledCheckbox.addEventListener("change", syncEnrichmentToggles);
+  dom.enrichmentGarbageDetectionEnabledCheckbox.addEventListener("change", syncEnrichmentToggles);
   dom.enrichmentUnifiedModelSelect.addEventListener("change", () =>
     onSettingsChange(0),
   );

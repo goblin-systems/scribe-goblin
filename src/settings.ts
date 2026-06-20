@@ -69,6 +69,7 @@ export interface Settings {
   // AI enrichment
   enrichmentSummaryEnabled: boolean;
   enrichmentTaggingEnabled: boolean;
+  enrichmentGarbageDetectionEnabled: boolean;
   enrichmentProvider: EnrichmentProvider;
   enrichmentModel: string;
   /** Absolute path of the local GGUF used when enrichmentProvider is "local-qwen".
@@ -135,6 +136,7 @@ const DEFAULTS: Settings = {
   },
   enrichmentSummaryEnabled: false,
   enrichmentTaggingEnabled: true,
+  enrichmentGarbageDetectionEnabled: true,
   enrichmentProvider: "local-qwen",
   enrichmentModel: LOCAL_QWEN_MODEL_ID,
   localLlmModelPath: "",
@@ -207,6 +209,9 @@ export async function loadSettings(): Promise<Settings> {
     (await read<boolean>("enrichmentTaggingEnabled")) ??
     legacyEnrichmentEnabled ??
     settings.enrichmentTaggingEnabled;
+  settings.enrichmentGarbageDetectionEnabled =
+    (await read<boolean>("enrichmentGarbageDetectionEnabled")) ??
+    settings.enrichmentGarbageDetectionEnabled;
   settings.enrichmentProvider = (await read<EnrichmentProvider>("enrichmentProvider")) ?? settings.enrichmentProvider;
   settings.enrichmentModel = (await read<string>("enrichmentModel")) ?? settings.enrichmentModel;
   settings.localLlmModelPath = (await read<string>("localLlmModelPath")) ?? settings.localLlmModelPath;
@@ -241,9 +246,15 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await s.set("embeddingModel", settings.embeddingModel);
   await s.set("localEmbeddingModelPath", settings.localEmbeddingModelPath);
   await s.set("ranking", settings.ranking);
-  await s.set("enrichmentEnabled", settings.enrichmentSummaryEnabled || settings.enrichmentTaggingEnabled);
+  await s.set(
+    "enrichmentEnabled",
+    settings.enrichmentSummaryEnabled ||
+      settings.enrichmentTaggingEnabled ||
+      settings.enrichmentGarbageDetectionEnabled,
+  );
   await s.set("enrichmentSummaryEnabled", settings.enrichmentSummaryEnabled);
   await s.set("enrichmentTaggingEnabled", settings.enrichmentTaggingEnabled);
+  await s.set("enrichmentGarbageDetectionEnabled", settings.enrichmentGarbageDetectionEnabled);
   await s.set("enrichmentProvider", settings.enrichmentProvider);
   await s.set("enrichmentModel", settings.enrichmentModel);
   await s.set("localLlmModelPath", settings.localLlmModelPath);

@@ -130,7 +130,11 @@ impl LlamaEngine {
         }
 
         let secs = started.elapsed().as_secs_f32();
-        let completion_tps = if secs > 0.0 { generated as f32 / secs } else { 0.0 };
+        let completion_tps = if secs > 0.0 {
+            generated as f32 / secs
+        } else {
+            0.0
+        };
 
         Ok(GenOutput {
             text,
@@ -172,7 +176,10 @@ mod tests {
 
     #[test]
     fn stop_index_picks_earliest() {
-        assert_eq!(first_stop_index("abXcdY", &["Y".into(), "X".into()]), Some(2));
+        assert_eq!(
+            first_stop_index("abXcdY", &["Y".into(), "X".into()]),
+            Some(2)
+        );
         assert_eq!(first_stop_index("abc", &["Z".into()]), None);
         assert_eq!(first_stop_index("abc", &["".into()]), None);
     }

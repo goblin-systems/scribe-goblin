@@ -67,6 +67,7 @@ export function populateSettingsUI(dom: ScribeDom, settings: Settings): void {
   // Enrichment section
   dom.enrichmentSummaryEnabledCheckbox.checked = settings.enrichmentSummaryEnabled;
   dom.enrichmentTaggingEnabledCheckbox.checked = settings.enrichmentTaggingEnabled;
+  dom.enrichmentGarbageDetectionEnabledCheckbox.checked = settings.enrichmentGarbageDetectionEnabled;
   updateEnrichmentModelOptions(dom, settings);
 
   // Ranking section
@@ -91,7 +92,7 @@ export function populateSettingsUI(dom: ScribeDom, settings: Settings): void {
   updateEmbeddingVisibility(dom, settings.embeddingProvider);
   updateEnrichmentVisibility(
     dom,
-    settings.enrichmentSummaryEnabled || settings.enrichmentTaggingEnabled,
+    settings.enrichmentSummaryEnabled || settings.enrichmentTaggingEnabled || settings.enrichmentGarbageDetectionEnabled,
   );
 }
 
@@ -515,6 +516,7 @@ export function readSettingsFromForm(dom: ScribeDom, current: Settings): Setting
     },
     enrichmentSummaryEnabled: dom.enrichmentSummaryEnabledCheckbox.checked,
     enrichmentTaggingEnabled: dom.enrichmentTaggingEnabledCheckbox.checked,
+    enrichmentGarbageDetectionEnabled: dom.enrichmentGarbageDetectionEnabledCheckbox.checked,
     enrichmentProvider,
     enrichmentModel: enrichmentModelValue || "",
     localLlmModelPath,

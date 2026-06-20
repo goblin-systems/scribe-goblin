@@ -68,6 +68,7 @@ export interface ScribeDom {
   enrichmentSettingsModal: HTMLElement;
   rankingSettingsModal: HTMLElement;
   debugSettingsModal: HTMLElement;
+  garbageCollectionModal: HTMLElement;
   aboutModal: HTMLElement;
   addBadgeModal: HTMLElement;
   importModal: HTMLElement;
@@ -105,6 +106,10 @@ export interface ScribeDom {
   shortcutsFixedList: HTMLDivElement;
   shortcutsCaptureHint: HTMLParagraphElement;
   shortcutsResetAllBtn: HTMLButtonElement;
+  garbageCollectionScanBtn: HTMLButtonElement;
+  garbageCollectionDeleteBtn: HTMLButtonElement;
+  garbageCollectionStatus: HTMLElement;
+  garbageCollectionList: HTMLDivElement;
 
   // Settings - Capture
   clipboardMonitoringCheckbox: HTMLInputElement;
@@ -133,11 +138,13 @@ export interface ScribeDom {
   // Settings - Enrichment
   enrichmentSummaryEnabledCheckbox: HTMLInputElement;
   enrichmentTaggingEnabledCheckbox: HTMLInputElement;
+  enrichmentGarbageDetectionEnabledCheckbox: HTMLInputElement;
   enrichmentConfig: HTMLDivElement;
   enrichmentUnifiedModelSelect: HTMLSelectElement;
   refreshEnrichmentModelsBtn: HTMLButtonElement;
   enrichmentModelHint: HTMLParagraphElement;
   retagAllEnrichmentBtn: HTMLButtonElement;
+  retagCancelBtn: HTMLButtonElement;
   retagProgressHost: HTMLDivElement;
 
   // Settings - Ranking
@@ -265,6 +272,7 @@ export function createDom(): ScribeDom {
     enrichmentSettingsModal: byId("enrichment-settings-modal"),
     rankingSettingsModal: byId("ranking-settings-modal"),
     debugSettingsModal: byId("debug-settings-modal"),
+    garbageCollectionModal: byId("garbage-collection-modal"),
     aboutModal: byId("about-modal"),
     addBadgeModal: byId("add-badge-modal"),
     importModal: byId("import-modal"),
@@ -304,6 +312,10 @@ export function createDom(): ScribeDom {
     shortcutsFixedList: byId("shortcuts-fixed-list"),
     shortcutsCaptureHint: byId("shortcuts-capture-hint"),
     shortcutsResetAllBtn: byId("shortcuts-reset-all-btn"),
+    garbageCollectionScanBtn: byId("garbage-collection-scan-btn"),
+    garbageCollectionDeleteBtn: byId("garbage-collection-delete-btn"),
+    garbageCollectionStatus: byId("garbage-collection-status"),
+    garbageCollectionList: byId("garbage-collection-list"),
 
     // Settings - Capture
     clipboardMonitoringCheckbox: byId("clipboard-monitoring-checkbox"),
@@ -332,11 +344,13 @@ export function createDom(): ScribeDom {
     // Settings - Enrichment
     enrichmentSummaryEnabledCheckbox: byId("enrichment-summary-enabled-checkbox"),
     enrichmentTaggingEnabledCheckbox: byId("enrichment-tagging-enabled-checkbox"),
+    enrichmentGarbageDetectionEnabledCheckbox: byId("enrichment-garbage-detection-enabled-checkbox"),
     enrichmentConfig: byId("enrichment-config"),
     enrichmentUnifiedModelSelect: byId("enrichment-unified-model-select"),
     refreshEnrichmentModelsBtn: byId("refresh-enrichment-models-btn"),
     enrichmentModelHint: byId("enrichment-model-hint"),
     retagAllEnrichmentBtn: byId("retag-all-enrichment-btn"),
+    retagCancelBtn: byId("retag-cancel-btn"),
     retagProgressHost: byId("retag-progress-host"),
 
     // Settings - Ranking

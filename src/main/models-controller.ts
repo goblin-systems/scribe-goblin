@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { showToast } from "@goblin-systems/goblin-design-system";
+import { applyIcons, showToast } from "@goblin-systems/goblin-design-system";
 import type { ScribeDom } from "./dom";
 import type { Settings } from "../settings";
 import { debugLog } from "../logger";
@@ -149,6 +149,7 @@ function modelRow(
   model: ModelInfo,
   onDownload: (model: ModelInfo) => void,
   onCancel: (model: ModelInfo) => void,
+  onDelete: (model: ModelInfo) => void,
 ): HTMLDivElement {
   const row = document.createElement("div");
   row.className = "ai-model-row";
@@ -186,11 +187,23 @@ function modelRow(
     badge.style.margin = "0";
     badge.textContent = "Installed";
     row.appendChild(badge);
+    if (model.source === "downloaded" || model.source === "custom") {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "icon-btn icon-btn-sm ai-model-action-btn";
+      deleteBtn.title = `Delete ${model.label}`;
+      deleteBtn.setAttribute("aria-label", `Delete ${model.label}`);
+      deleteBtn.innerHTML = `<i data-lucide="trash-2"></i>`;
+      deleteBtn.addEventListener("click", () => onDelete(model));
+      row.appendChild(deleteBtn);
+    }
   } else if (downloadingIds.has(model.id)) {
     const cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
-    cancelBtn.className = "secondary-btn slim-btn";
-    cancelBtn.textContent = "Cancel";
+    cancelBtn.className = "icon-btn icon-btn-sm ai-model-action-btn";
+    cancelBtn.title = `Cancel ${model.label} download`;
+    cancelBtn.setAttribute("aria-label", `Cancel ${model.label} download`);
+    cancelBtn.innerHTML = `<i data-lucide="x"></i>`;
     cancelBtn.addEventListener("click", () => onCancel(model));
     row.appendChild(cancelBtn);
     progress.hidden = false;
@@ -198,8 +211,10 @@ function modelRow(
   } else if (model.repo && model.file) {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "secondary-btn slim-btn";
-    btn.textContent = "Download";
+    btn.className = "icon-btn icon-btn-sm ai-model-action-btn";
+    btn.title = `Download ${model.label}`;
+    btn.setAttribute("aria-label", `Download ${model.label}`);
+    btn.innerHTML = `<i data-lucide="download"></i>`;
     btn.addEventListener("click", () => onDownload(model));
     row.appendChild(btn);
   } else {
@@ -250,7 +265,7 @@ export function initAiModelsController(
       const renderInto = (host: HTMLDivElement, kinds: (kind: string) => boolean) => {
         const rows = models
           .filter((m) => kinds(m.kind))
-          .map((model) => modelRow(model, startDownload, cancelDownload));
+          .map((model) => modelRow(model, startDownload, cancelDownload, deleteModel));
         if (rows.length === 0) {
           const empty = document.createElement("p");
           empty.className = "hint";
@@ -258,6 +273,7 @@ export function initAiModelsController(
           host.replaceChildren(empty);
         } else {
           host.replaceChildren(...rows);
+          applyIcons();
         }
       };
       renderInto(dom.aiModelsLlmList, (kind) => kind.startsWith("llm-"));
@@ -311,6 +327,18 @@ export function initAiModelsController(
     invoke("models_cancel_download", { id: model.id }).catch((err) => {
       debugLog(`models_cancel_download failed: ${err}`, "WARN");
     });
+  }
+
+  async function deleteModel(model: ModelInfo): Promise<void> {
+    try {
+      await invoke("models_delete", { id: model.id });
+      showToast("Model deleted.", "success", 2000);
+      await refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      debugLog(`models_delete failed for ${model.id}: ${message}`, "ERROR");
+      showToast(`Delete failed: ${message}`, "error", 5000);
+    }
   }
 
   dom.aiModelsRefreshBtn.addEventListener("click", () => void refresh());

@@ -81,19 +81,21 @@ pub async fn load_engine(
     gpu_layers: u32,
 ) -> Result<LoadedEngine, String> {
     match kind {
-        EngineKind::MistralRs => {
-            Ok(LoadedEngine::MistralRs(crate::qwen_tagger::load_model(path).await?))
-        }
-        #[cfg(feature = "llamacpp")]
-        EngineKind::LlamaCpp => Ok(LoadedEngine::LlamaCpp(
-            crate::llamacpp::LlamaEngine::load(path, gpu_layers)?,
+        EngineKind::MistralRs => Ok(LoadedEngine::MistralRs(
+            crate::qwen_tagger::load_model(path).await?,
         )),
+        #[cfg(feature = "llamacpp")]
+        EngineKind::LlamaCpp => Ok(LoadedEngine::LlamaCpp(crate::llamacpp::LlamaEngine::load(
+            path, gpu_layers,
+        )?)),
         #[cfg(not(feature = "llamacpp"))]
         EngineKind::LlamaCpp => {
             let _ = gpu_layers;
-            Err("llama.cpp engine is not included in this build. Download the GPU \
+            Err(
+                "llama.cpp engine is not included in this build. Download the GPU \
                  build (llama.cpp + Vulkan) or rebuild with --features llamacpp-vulkan."
-                .to_string())
+                    .to_string(),
+            )
         }
     }
 }
@@ -167,9 +169,15 @@ async fn mistralrs_generate(model: &Model, req: &GenRequest) -> Result<GenOutput
                 }
                 break;
             }
-            Response::ModelError(message, _) => return Err(format!("mistral.rs model error: {message}")),
-            Response::InternalError(err) => return Err(format!("mistral.rs internal error: {err}")),
-            Response::ValidationError(err) => return Err(format!("mistral.rs validation error: {err}")),
+            Response::ModelError(message, _) => {
+                return Err(format!("mistral.rs model error: {message}"))
+            }
+            Response::InternalError(err) => {
+                return Err(format!("mistral.rs internal error: {err}"))
+            }
+            Response::ValidationError(err) => {
+                return Err(format!("mistral.rs validation error: {err}"))
+            }
             _ => {}
         }
     }

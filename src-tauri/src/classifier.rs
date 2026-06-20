@@ -296,7 +296,9 @@ pub async fn reembed_all_entries(
     db_state: State<'_, db::DbState>,
     classifier_state: State<'_, ClassifierState>,
 ) -> Result<ReembedResult, String> {
-    let classifier = classifier_state.ensure_engine(model_path.as_deref()).await?;
+    let classifier = classifier_state
+        .ensure_engine(model_path.as_deref())
+        .await?;
 
     // Read entries in a scoped lock: the DB mutex guard must not be held
     // across the embedding awaits below.
@@ -423,7 +425,11 @@ mod tests {
         let emb = generate_embedding_inner("hello world", &TEST_STATE)
             .expect("generate_embedding failed");
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 1e-4, "L2 norm should be ≈1.0, got {}", norm);
+        assert!(
+            (norm - 1.0).abs() < 1e-4,
+            "L2 norm should be ≈1.0, got {}",
+            norm
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -445,13 +451,22 @@ mod tests {
         let emb = embed_text(&engine, "hello world")
             .await
             .expect("embedding inference failed");
-        assert_eq!(emb.len(), 1024, "Qwen3-Embedding-0.6B should emit 1024 dims");
+        assert_eq!(
+            emb.len(),
+            1024,
+            "Qwen3-Embedding-0.6B should emit 1024 dims"
+        );
         let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((norm - 1.0).abs() < 1e-3, "L2 norm should be ≈1.0, got {norm}");
+        assert!(
+            (norm - 1.0).abs() < 1e-3,
+            "L2 norm should be ≈1.0, got {norm}"
+        );
 
         // Semantic sanity: related sentences must be closer than unrelated ones.
         let a = embed_text(&engine, "the cat sat on the mat").await.unwrap();
-        let b = embed_text(&engine, "a kitten rests on a rug").await.unwrap();
+        let b = embed_text(&engine, "a kitten rests on a rug")
+            .await
+            .unwrap();
         let c = embed_text(&engine, "quarterly financial report 2026")
             .await
             .unwrap();

@@ -167,15 +167,18 @@ pub async fn autocomplete_complete(
     }
 
     let started = Instant::now();
-    let guard = state.ensure_loaded(&path, kind, gpu_layers).await.map_err(|err| {
-        write_debug_log_internal(
-            &app,
-            &debug_state,
-            "ERROR",
-            &format!("autocomplete_complete load failed: {err}"),
-        );
-        err
-    })?;
+    let guard = state
+        .ensure_loaded(&path, kind, gpu_layers)
+        .await
+        .map_err(|err| {
+            write_debug_log_internal(
+                &app,
+                &debug_state,
+                "ERROR",
+                &format!("autocomplete_complete load failed: {err}"),
+            );
+            err
+        })?;
     let slot = guard.as_ref().expect("engine loaded above");
 
     let output = inference::generate(
@@ -282,7 +285,10 @@ mod tests {
             state.resolve_model_path(Some("/custom.gguf")),
             PathBuf::from("/custom.gguf"),
         );
-        assert_eq!(state.resolve_model_path(None), PathBuf::from("/default.gguf"));
+        assert_eq!(
+            state.resolve_model_path(None),
+            PathBuf::from("/default.gguf")
+        );
         assert_eq!(
             state.resolve_model_path(Some("  ")),
             PathBuf::from("/default.gguf"),

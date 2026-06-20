@@ -205,16 +205,15 @@ pub(crate) fn ensure_vec_table_dim(conn: &Connection, dim: usize) -> Result<(), 
     }
     match vec_table_dim(conn)? {
         Some(current) if current == dim => Ok(()),
-        Some(_) => {
-            conn.execute_batch(&format!(
+        Some(_) => conn
+            .execute_batch(&format!(
                 "DROP TABLE vec_entries;
                  CREATE VIRTUAL TABLE vec_entries USING vec0(
                     entry_id TEXT PRIMARY KEY,
                     embedding float[{dim}] distance_metric=cosine
                  );"
             ))
-            .map_err(|e| format!("Failed to recreate vec_entries with dim {dim}: {e}"))
-        }
+            .map_err(|e| format!("Failed to recreate vec_entries with dim {dim}: {e}")),
         None => conn
             .execute_batch(&format!(
                 "CREATE VIRTUAL TABLE IF NOT EXISTS vec_entries USING vec0(

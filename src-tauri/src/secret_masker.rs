@@ -491,7 +491,14 @@ fn xlm_roberta_token_predictions(
 
     let hidden = masker
         .model
-        .forward(&input_ids, &attention_mask, &token_type_ids, None, None, None)
+        .forward(
+            &input_ids,
+            &attention_mask,
+            &token_type_ids,
+            None,
+            None,
+            None,
+        )
         .map_err(|e| format!("XLM-RoBERTa forward failed: {e}"))?;
     let logits = masker
         .classifier

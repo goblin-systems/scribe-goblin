@@ -175,6 +175,10 @@ impl ModelsState {
             .join(sanitize_id(id))
             .join(local_relpath(file))
     }
+
+    fn model_dir(&self, id: &str) -> PathBuf {
+        self.models_dir.join(sanitize_id(id))
+    }
 }
 
 /// Where a downloaded file lands under the model's directory. HF puts ONNX
@@ -280,6 +284,11 @@ pub fn models_list(state: State<'_, ModelsState>) -> Result<Vec<ModelInfo>, Stri
             {
                 path = path.and_then(|p| p.parent().map(Path::to_path_buf));
             }
+            let source = match path.as_ref() {
+                Some(p) if p.starts_with(&state.models_dir) => "downloaded",
+                Some(_) => "bundled",
+                None => "registry",
+            };
             ModelInfo {
                 id: entry.id.to_string(),
                 kind: entry.kind.to_string(),
@@ -289,7 +298,7 @@ pub fn models_list(state: State<'_, ModelsState>) -> Result<Vec<ModelInfo>, Stri
                 approx_size_bytes: entry.approx_size_bytes,
                 installed: path.is_some(),
                 path: path.map(|p| p.to_string_lossy().to_string()),
-                source: "registry".to_string(),
+                source: source.to_string(),
             }
         })
         .collect();
@@ -425,7 +434,11 @@ fn safetensors_snapshot_info(dir: &Path, repo: &str) -> Option<ModelInfo> {
         label: format!("{repo} (HF cache, safetensors)"),
         repo: Some(repo.to_string()),
         file: None,
-        approx_size_bytes: if weights_bytes > 0 { Some(weights_bytes) } else { None },
+        approx_size_bytes: if weights_bytes > 0 {
+            Some(weights_bytes)
+        } else {
+            None
+        },
         installed: true,
         path: Some(dir.to_string_lossy().to_string()),
         source: "hf-cache".to_string(),
@@ -563,7 +576,11 @@ pub async fn models_download(
             Ok(())
         }
         Err(err) => {
-            let status = if err == "cancelled" { "cancelled" } else { "error" };
+            let status = if err == "cancelled" {
+                "cancelled"
+            } else {
+                "error"
+            };
             let _ = app.emit(
                 PROGRESS_EVENT,
                 DownloadProgress {
@@ -679,6 +696,18 @@ pub fn models_cancel_download(id: String, state: State<'_, ModelsState>) -> Resu
         }
         None => Err(format!("No active download for '{id}'")),
     }
+}
+
+#[tauri::command]
+pub fn models_delete(id: String, state: State<'_, ModelsState>) -> Result<(), String> {
+    let dir = state.model_dir(&id);
+    if !dir.exists() {
+        return Err(format!("No app-managed download found for '{id}'"));
+    }
+    if !dir.starts_with(&state.models_dir) {
+        return Err("Refusing to delete outside the models directory".to_string());
+    }
+    std::fs::remove_dir_all(&dir).map_err(|e| format!("Failed to delete {}: {e}", dir.display()))
 }
 
 // ---------------------------------------------------------------------------
