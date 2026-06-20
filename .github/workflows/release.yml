@@ -2,17 +2,19 @@ name: Release
 
 # Builds every distributable variant and publishes a GitHub release.
 #
-#   Windows : standard, vulkan, cuda
-#   Linux   : standard, vulkan, cuda, rocm
-#   macOS   : standard, metal
+#   Windows : vulkan, cuda
+#   Linux   : vulkan, cuda, rocm
+#   macOS   : metal
 #
-# Inference engines / GPU backends:
-#   • standard — CPU via mistral.rs (the default download, every platform).
-#   • vulkan   — llama.cpp + Vulkan. Cross-vendor (AMD + NVIDIA + Intel). On
-#                Windows this is the AMD path. (Win + Linux)
-#   • cuda     — llama.cpp + CUDA. NVIDIA only. (Win + Linux)
-#   • rocm     — llama.cpp + ROCm/HIP. AMD only, Linux only.
-#   • metal    — mistral.rs + Metal. Apple GPU. (macOS only)
+# Every build also includes the mistral.rs CPU engine, so a user can fall back
+# to CPU from the UI in any build — there is no separate CPU-only artifact.
+#
+# GPU backends:
+#   • vulkan — llama.cpp + Vulkan. Cross-vendor (AMD + NVIDIA + Intel). On
+#              Windows this is the AMD path. (Win + Linux)
+#   • cuda   — llama.cpp + CUDA. NVIDIA only. (Win + Linux)
+#   • rocm   — llama.cpp + ROCm/HIP. AMD only, Linux only.
+#   • metal  — mistral.rs + Metal. Apple GPU. (macOS only)
 #
 # Trigger manually (workflow_dispatch); the prepare job bumps the version,
 # commits, tags, and the build/publish jobs fan out from that tag.
@@ -204,15 +206,16 @@ jobs:
     name: ${{ matrix.os }} / ${{ matrix.variant }}
     needs: prepare
     runs-on: ${{ matrix.os }}
+    env:
+      # crates.io downloads intermittently fail over HTTP/2 on hosted runners
+      # ("Failed receiving HTTP2 data"); force HTTP/1.1 and retry aggressively.
+      CARGO_HTTP_MULTIPLEXING: "false"
+      CARGO_NET_RETRY: "10"
     strategy:
       fail-fast: false
       matrix:
         include:
           # ---- Windows ----
-          - os: windows-latest
-            variant: standard
-            features: ""
-            bundles: nsis
           - os: windows-latest
             variant: vulkan
             features: "--features llamacpp-vulkan"
@@ -226,10 +229,6 @@ jobs:
             cuda: true
             ninja: true
           # ---- Linux ----
-          - os: ubuntu-24.04
-            variant: standard
-            features: ""
-            bundles: deb,appimage
           - os: ubuntu-24.04
             variant: vulkan
             features: "--features llamacpp-vulkan"
@@ -249,10 +248,6 @@ jobs:
             rocm: true
             ninja: true
           # ---- macOS ----
-          - os: macos-latest
-            variant: standard
-            features: ""
-            bundles: dmg
           - os: macos-latest
             variant: metal
             features: "--features metal"
@@ -319,28 +314,51 @@ jobs:
           cache: true
 
       # llama.cpp's CUDA backend compiles with nvcc. Only the toolkit is needed
-      # at build time — no GPU is required to compile.
-      - name: Install CUDA toolkit
-        if: matrix.cuda
+      # at build time — no GPU is required to compile. The toolkit is installed
+      # differently per OS because the package naming differs:
+      #   Windows — Jimver action with the installer's subpackage names.
+      #   Linux   — apt `cuda-toolkit-12-5` meta (NVIDIA's lib* packaging does
+      #             not match the action's `cuda-<name>` mapping, and the meta
+      #             pulls nvcc + cudart + cublas + nvrtc without the GPU driver).
+      - name: Install CUDA toolkit (Windows)
+        if: matrix.cuda && runner.os == 'Windows'
         uses: Jimver/cuda-toolkit@v0.2.19
         with:
           cuda: "12.5.0"
           method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "cuda_nvrtc", "cuda_nvrtc_dev", "cuda_cccl", "thrust", "visual_studio_integration"]'
+          use-github-cache: false
+          use-local-cache: false
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "cuda_nvrtc", "cuda_nvrtc_dev", "cuda_cccl", "thrust"]'
 
-      # llama.cpp's ROCm/HIP backend needs AMD's ROCm toolchain. amdgpu-install
-      # with --no-dkms skips the kernel driver (we only compile, never run, here).
-      # AMDGPU_TARGETS pins the GPU archs to build for so cmake does not try to
-      # autodetect a (non-existent) local GPU. NOTE: ROCm CI is the least battle-
-      # tested path — expect to tune the ROCm version / target list on first run.
+      - name: Install CUDA toolkit (Linux)
+        if: matrix.cuda && runner.os == 'Linux'
+        run: |
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+          sudo dpkg -i cuda-keyring_1.1-1_all.deb
+          sudo apt-get update
+          sudo apt-get install -y cuda-toolkit-12-5
+          echo "/usr/local/cuda-12.5/bin" >> "$GITHUB_PATH"
+          echo "CUDA_PATH=/usr/local/cuda-12.5" >> "$GITHUB_ENV"
+
+      # llama.cpp's ROCm/HIP backend needs AMD's ROCm toolchain. We install the
+      # `rocm-hip-sdk` metapackage straight from AMD's apt repo — that is the
+      # compile-time SDK (hipcc + hipBLAS/rocBLAS dev) with no kernel driver, so
+      # no GPU/DKMS is required to build. ROCm must be >= 6.3: the HIP backend
+      # references the OCP FP8 type `__hip_fp8_e4m3`, which older ROCm (6.2) does
+      # not define (it only has the `_fnuz` variant), breaking the compile.
+      # AMDGPU_TARGETS pins the GPU archs so cmake does not try to autodetect a
+      # (non-existent) local GPU.
       - name: Install ROCm
         if: matrix.rocm
         run: |
           sudo apt-get update
           sudo apt-get install -y wget gnupg2
-          wget https://repo.radeon.com/amdgpu-install/6.2.2/ubuntu/noble/amdgpu-install_6.2.60202-1_all.deb
-          sudo apt-get install -y ./amdgpu-install_*.deb
-          sudo amdgpu-install -y --usecase=rocm --no-dkms
+          sudo mkdir --parents --mode=0755 /etc/apt/keyrings
+          wget https://repo.radeon.com/rocm/rocm.gpg.key -O - | gpg --dearmor | sudo tee /etc/apt/keyrings/rocm.gpg > /dev/null
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/6.4.1 noble main" | sudo tee /etc/apt/sources.list.d/rocm.list
+          printf 'Package: *\nPin: release o=repo.radeon.com\nPin-Priority: 600\n' | sudo tee /etc/apt/preferences.d/rocm-pin-600
+          sudo apt-get update
+          sudo apt-get install -y rocm-hip-sdk
           echo "ROCM_PATH=/opt/rocm" >> "$GITHUB_ENV"
           echo "HIP_PATH=/opt/rocm" >> "$GITHUB_ENV"
           echo "/opt/rocm/bin" >> "$GITHUB_PATH"
@@ -366,8 +384,8 @@ jobs:
       - name: Build Tauri app
         run: bun run tauri build --ci --no-sign --bundles ${{ matrix.bundles }} ${{ matrix.features }}
 
-      # Collect every produced bundle and tag non-standard variants with a suffix
-      # so files from different variants do not collide in the release.
+      # Collect every produced bundle and tag it with the variant name so files
+      # from different variants do not collide in the release.
       - name: Collect installers
         shell: bash
         run: |
@@ -383,11 +401,7 @@ jobs:
             base="$(basename "$f")"
             name="${base%.*}"
             ext="${base##*.}"
-            if [ "$suffix" = "standard" ]; then
-              cp "$f" "dist-artifacts/$base"
-            else
-              cp "$f" "dist-artifacts/${name}-${suffix}.${ext}"
-            fi
+            cp "$f" "dist-artifacts/${name}-${suffix}.${ext}"
           done
           ls -la dist-artifacts
 
@@ -422,23 +436,23 @@ jobs:
           body: |
             ## Downloads
 
-            **Don't know which to pick?** Use the **standard** build — it runs on
-            CPU and works everywhere. The other builds are GPU-accelerated.
+            Every build can also run on **CPU** (mistral.rs) — selectable in the
+            app — so pick the build that matches your GPU.
+
+            **Don't know which to pick?** On Windows/Linux choose **Vulkan** (works
+            on AMD, NVIDIA and Intel). On macOS use **Metal**.
 
             ### Windows
-            - `*-setup.exe` — standard (CPU / mistral.rs)
-            - `*-vulkan-setup.exe` — GPU via Vulkan. **AMD users pick this** (also works on NVIDIA / Intel)
-            - `*-cuda-setup.exe` — GPU via CUDA (NVIDIA only)
+            - `*-vulkan-setup.exe` — Vulkan. **AMD users pick this** (also works on NVIDIA / Intel)
+            - `*-cuda-setup.exe` — CUDA (NVIDIA only, fastest on NVIDIA)
 
             ### Linux
-            - `*.AppImage` / `*.deb` — standard (CPU / mistral.rs)
-            - `*-vulkan.*` — GPU via Vulkan (AMD / NVIDIA / Intel)
-            - `*-cuda.*` — GPU via CUDA (NVIDIA only)
-            - `*-rocm.*` — GPU via ROCm (AMD only)
+            - `*-vulkan.*` — Vulkan (AMD / NVIDIA / Intel)
+            - `*-cuda.*` — CUDA (NVIDIA only)
+            - `*-rocm.*` — ROCm (AMD only, native AMD path)
 
             ### macOS
-            - `*.dmg` — standard (CPU / mistral.rs)
-            - `*-metal.dmg` — GPU via Metal (Apple Silicon / AMD GPUs)
+            - `*-metal.dmg` — Metal (Apple Silicon / AMD GPUs)
           files: |
             release-assets/**/*.exe
             release-assets/**/*.dmg
