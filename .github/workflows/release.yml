@@ -46,7 +46,6 @@ jobs:
     outputs:
       new_version: ${{ steps.version.outputs.new_version }}
       new_tag: ${{ steps.version.outputs.new_tag }}
-      release_commit: ${{ steps.commit_release.outputs.release_commit }}
 
     steps:
       - name: Checkout
@@ -64,17 +63,13 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       # See ci.yml for why this swap is needed (workspace:* cannot resolve in a
-      # standalone checkout). Restored before any commit so the working tree we
-      # tag keeps `workspace:*` for local monorepo development.
+      # standalone checkout). This job never commits, so no restore is needed.
       - name: Pin design system to published version (standalone build)
         shell: bash
         run: node -e "const fs=require('fs');fs.writeFileSync('package.json',fs.readFileSync('package.json','utf8').replace('workspace:*','^1.0.0'))"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Restore workspace dependency
-        run: git checkout -- package.json
 
       - name: Run tests
         run: bun run test
@@ -134,56 +129,11 @@ jobs:
           Write-Host "Latest tag: $latestTag"
           Write-Host "Next version: $newVersion"
 
-      - name: Update version files
-        shell: pwsh
-        env:
-          NEW_VERSION: ${{ steps.version.outputs.new_version }}
-        run: |
-          $version = $env:NEW_VERSION
-
-          $packagePath = 'package.json'
-          $package = Get-Content $packagePath -Raw | ConvertFrom-Json
-          $package.version = $version
-          $package | ConvertTo-Json -Depth 50 | Set-Content $packagePath -Encoding utf8
-
-          $tauriPath = 'src-tauri/tauri.conf.json'
-          $tauri = Get-Content $tauriPath -Raw | ConvertFrom-Json
-          $tauri.version = $version
-          $tauri | ConvertTo-Json -Depth 50 | Set-Content $tauriPath -Encoding utf8
-
-          $cargoPath = 'src-tauri/Cargo.toml'
-          $cargo = Get-Content $cargoPath -Raw
-          $cargo = [regex]::Replace($cargo, '(?ms)(\[package\][^\[]*?version\s*=\s*")([^"]+)(")', "`${1}$version`${3}")
-          Set-Content $cargoPath -Value $cargo -Encoding utf8
-
-          Write-Host "Version files updated to $version"
-
-      - name: Commit release version
-        id: commit_release
-        shell: pwsh
-        env:
-          NEW_VERSION: ${{ steps.version.outputs.new_version }}
-          GIT_AUTHOR_NAME: github-actions[bot]
-          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
-          GIT_COMMITTER_NAME: github-actions[bot]
-          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
-        run: |
-          $version = $env:NEW_VERSION.Trim()
-          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
-
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) {
-            throw "No version changes were staged for release $version"
-          }
-
-          git commit -m "chore: release v$version"
-
-          $releaseCommit = git rev-parse HEAD
-          "release_commit=$releaseCommit" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
-          Write-Host "Release commit: $releaseCommit"
-
-      - name: Create and push release commit and tag
+      # Version numbers are derived from git tags, not committed to the repo.
+      # The build job patches the version into package.json / tauri.conf.json /
+      # Cargo.toml at build time (never committed), so the release is driven
+      # purely by the tag and master gets no extra "chore: release" commits.
+      - name: Create and push tag
         shell: pwsh
         env:
           NEW_TAG: ${{ steps.version.outputs.new_tag }}
@@ -199,7 +149,6 @@ jobs:
           }
 
           git tag $tag
-          git push origin HEAD:master
           git push origin $tag
 
   build:
@@ -222,7 +171,10 @@ jobs:
             bundles: nsis
             vulkan: true
             ninja: true
-          - os: windows-latest
+          # Pinned to windows-2022: the CUDA 12.5 installer fails on the
+          # windows-latest image (now Windows Server 2025) with exit code
+          # 3772776473. Server 2022 installs the toolkit cleanly.
+          - os: windows-2022
             variant: cuda
             features: "--features llamacpp-cuda"
             bundles: nsis
@@ -377,6 +329,33 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      # Stamp the version derived from the tag into the build inputs. These edits
+      # are ephemeral (this checkout is the tag and is never pushed), so the
+      # version lives only in the produced artifacts — not in the repo history.
+      - name: Update version files
+        shell: pwsh
+        env:
+          NEW_VERSION: ${{ needs.prepare.outputs.new_version }}
+        run: |
+          $version = $env:NEW_VERSION
+
+          $packagePath = 'package.json'
+          $package = Get-Content $packagePath -Raw | ConvertFrom-Json
+          $package.version = $version
+          $package | ConvertTo-Json -Depth 50 | Set-Content $packagePath -Encoding utf8
+
+          $tauriPath = 'src-tauri/tauri.conf.json'
+          $tauri = Get-Content $tauriPath -Raw | ConvertFrom-Json
+          $tauri.version = $version
+          $tauri | ConvertTo-Json -Depth 50 | Set-Content $tauriPath -Encoding utf8
+
+          $cargoPath = 'src-tauri/Cargo.toml'
+          $cargo = Get-Content $cargoPath -Raw
+          $cargo = [regex]::Replace($cargo, '(?ms)(\[package\][^\[]*?version\s*=\s*")([^"]+)(")', "`${1}$version`${3}")
+          Set-Content $cargoPath -Value $cargo -Encoding utf8
+
+          Write-Host "Version files stamped to $version"
 
       - name: Build frontend
         run: bun run build
